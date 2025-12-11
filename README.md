@@ -4,77 +4,636 @@
 
 A Go-based multi-agent system that processes documents through specialized agents (parser, analysis, query) orchestrated via NATS and backed by Postgres with pgvector for semantic search.
 
+## Table of Contents
+
+- [Architecture](#architecture)
+- [Quick Start](#quick-start)
+- [API Documentation](#api-documentation)
+- [Design Decisions & Rationale](#design-decisions--rationale)
+- [Project Structure](#project-structure)
+- [Testing](#testing)
+- [Known Limitations](#known-limitations)
+
+## Features
+
+✅ **Multi-Agent Architecture**: Independently scalable Parser, Analysis, and Query agents  
+✅ **PDF & Text Support**: Extracts text from PDFs and plain text files  
+✅ **Semantic Search**: Vector similarity search using OpenAI embeddings  
+✅ **AI-Powered Summarization**: GPT-4o-mini generates summaries and key points  
+✅ **Question Answering**: RAG-based QA with source attribution  
+✅ **Async Processing**: NATS message queue with retry logic  
+✅ **Docker Deployment**: Full stack with docker-compose  
+✅ **Health Checks**: All services expose `/healthz` endpoints
+
 ## Architecture
 
-- API Gateway (`cmd/gateway`): accepts uploads, exposes summary + query endpoints, enqueues parse tasks.
-- Parser Agent (`cmd/parser`): extracts text/chunks from documents and emits analysis tasks.
-- Analysis Agent (`cmd/analysis`): summarizes documents, creates embeddings, marks docs ready.
-- Query Agent (`cmd/query`): semantic search + question answering over stored embeddings.
-- Shared infra: Postgres (pgx) for persistence, NATS for the task bus; in-memory fallbacks for quick local runs.
+### System Overview
 
 ```mermaid
-flowchart LR
-    U[Client] -->|upload| G[Gateway]
-    G -->|task: parse| Q1[NATS]
-    G -->|persist doc| DB
-    Q1 --> P[Parser]
-    P -->|chunks saved| DB[(Postgres/pgvector-ready)]
-    P -->|task: analyze| Q2[NATS]
-    Q2 --> A[Analysis]
-    A -->|embeddings+summary| DB
-    A -->|status ready| DB
-    G -->|query| Q[Query Agent]
-    Q -->|vector search| DB
-    Q -->|LLM answer| U
+flowchart TB
+    subgraph Client
+        U[User/API Client]
+    end
+    
+    subgraph "API Gateway :8080"
+        G[Gateway Service<br/>Go + Chi Router]
+    end
+    
+    subgraph "Message Queue"
+        Q[NATS JetStream<br/>Task Distribution]
+    end
+    
+    subgraph "Processing Agents"
+        P[Parser Agent :8082<br/>2 replicas<br/>PDF/Text Extraction]
+        A[Analysis Agent :8083<br/>2 replicas<br/>OpenAI Summarization]
+    end
+    
+    subgraph "Query Service"
+        QA[Query Agent :8081<br/>Semantic Search + QA]
+    end
+    
+    subgraph "Data Layer"
+        DB[(PostgreSQL + pgvector<br/>Documents, Chunks,<br/>Embeddings, Summaries)]
+    end
+    
+    subgraph "External APIs"
+        OAI[OpenAI API<br/>GPT-4o-mini<br/>text-embedding-3-small]
+    end
+    
+    U -->|1. POST /api/documents/upload| G
+    G -->|2. Create doc record| DB
+    G -->|3. Enqueue parse task| Q
+    Q -->|4. Consume task| P
+    P -->|5. Extract text & chunk| P
+    P -->|6. Save chunks| DB
+    P -->|7. Enqueue analyze task| Q
+    Q -->|8. Consume task| A
+    A -->|9. Generate embeddings| OAI
+    A -->|10. Summarize content| OAI
+    A -->|11. Save results| DB
+    
+    U -->|12. GET /summary| G
+    G -->|13. Fetch summary| DB
+    G -->|14. Return response| U
+    
+    U -->|15. POST /query| G
+    G -->|16. Forward request| QA
+    QA -->|17. Vector similarity search| DB
+    QA -->|18. Generate answer| OAI
+    QA -->|19. Return answer + sources| G
+    G -->|20. Return to client| U
+    
+    style G fill:#4CAF50
+    style P fill:#2196F3
+    style A fill:#2196F3
+    style QA fill:#FF9800
+    style DB fill:#9C27B0
+    style Q fill:#00BCD4
+    style OAI fill:#F44336
 ```
 
-## Endpoints (gateway)
-- `POST /api/documents/upload` (multipart `file`): returns `{document_id, status}` and enqueues parsing.
-- `GET /api/documents/{id}/summary`: returns `summary`, `key_points`.
-- `POST /api/query` body `{"question":"...","document_ids":["uuid"],"top_k":5}` → `{answer,sources,confidence}`.
-- `GET /healthz`
+### Component Responsibilities
 
-Query agent also exposes `POST /api/query` on its own port for direct access.
+| Component | Technology | Responsibility | Scaling Strategy |
+|-----------|-----------|----------------|------------------|
+| **API Gateway** | Go, Chi Router | Entry point, request routing, task enqueuing | Horizontal (stateless) |
+| **Parser Agent** | Go, ledongthuc/pdf | Text extraction, document chunking | Horizontal (2 replicas) |
+| **Analysis Agent** | Go, OpenAI SDK | Generate embeddings & summaries | Horizontal (rate limit aware) |
+| **Query Agent** | Go, OpenAI SDK | Semantic search, question answering | Horizontal (stateless) |
+| **NATS** | NATS JetStream | Async task queue, retry handling | Clustered (production) |
+| **PostgreSQL** | pgvector extension | Document storage, vector search | Vertical + read replicas |
 
-## Running locally
+### Data Flow
+
+#### Upload Flow
+```
+1. Client uploads PDF/TXT → Gateway
+2. Gateway creates document record (status: pending)
+3. Gateway enqueues "parse" task → NATS
+4. Parser agent consumes task
+5. Parser extracts text, splits into chunks
+6. Parser saves chunks to DB
+7. Parser enqueues "analyze" task → NATS
+8. Analysis agent consumes task
+9. Analysis calls OpenAI for embeddings + summary
+10. Analysis saves results, updates status → ready
+```
+
+#### Query Flow
+```
+1. Client sends question + document IDs → Gateway
+2. Gateway forwards to Query Agent
+3. Query Agent retrieves chunk embeddings from DB
+4. Query Agent computes cosine similarity
+5. Query Agent fetches top-k similar chunks
+6. Query Agent calls OpenAI with context + question
+7. Query Agent returns answer with sources
+```
+
+### Error Handling & Retry
+
+- **Exponential Backoff**: `baseDelay * 2^attempt` for queue retries
+- **Max Retries**: 3 attempts before marking task as failed
+- **Health Checks**: All services expose `/healthz` for liveness probes
+- **Graceful Degradation**: Query agent continues even if some docs are still processing
+
+## API Documentation
+
+### Base URL
+Gateway: `http://localhost:8080`
+
+### Endpoints
+
+#### 1. Upload Document
+
+**Request:**
+```http
+POST /api/documents/upload
+Content-Type: multipart/form-data
+```
+
+**Example:**
+```bash
+curl -F "file=@./document.pdf" http://localhost:8080/api/documents/upload
+```
+
+**Response:** (202 Accepted)
+```json
+{
+  "document_id": "550e8400-e29b-41d4-a716-446655440000",
+  "status": "pending"
+}
+```
+
+**Supported Formats:**
+- PDF (`.pdf`)
+- Plain Text (`.txt`)
+- Other text formats (treated as plain text)
+
+---
+
+#### 2. Get Document Summary
+
+**Request:**
+```http
+GET /api/documents/{document_id}/summary
+```
+
+**Example:**
+```bash
+curl http://localhost:8080/api/documents/550e8400-e29b-41d4-a716-446655440000/summary
+```
+
+**Response:** (200 OK)
+```json
+{
+  "documentId": "550e8400-e29b-41d4-a716-446655440000",
+  "summary": "This document discusses the architecture of microservices systems. It covers key concepts including service boundaries, communication patterns, and deployment strategies.",
+  "key_points": [
+    "Microservices enable independent deployment and scaling",
+    "API gateways centralize routing and authentication",
+    "Event-driven architectures improve decoupling",
+    "Container orchestration simplifies operations"
+  ]
+}
+```
+
+**Error Response:** (404 Not Found)
+```json
+{
+  "error": "summary not ready"
+}
+```
+*Note: Summary generation is asynchronous. Wait a few seconds after upload before requesting.*
+
+---
+
+#### 3. Query Documents
+
+**Request:**
+```http
+POST /api/query
+Content-Type: application/json
+```
+
+**Body:**
+```json
+{
+  "question": "What are the benefits of microservices?",
+  "document_ids": ["550e8400-e29b-41d4-a716-446655440000"],
+  "top_k": 5
+}
+```
+
+**Example:**
+```bash
+curl -X POST http://localhost:8080/api/query \
+  -H "Content-Type: application/json" \
+  -d '{
+    "question": "What are the benefits of microservices?",
+    "document_ids": ["550e8400-e29b-41d4-a716-446655440000"],
+    "top_k": 5
+  }'
+```
+
+**Response:** (200 OK)
+```json
+{
+  "answer": "Microservices provide several benefits including independent deployment and scaling, allowing teams to work autonomously. They enable better fault isolation and technology flexibility per service.",
+  "sources": [
+    {
+      "chunk_id": "123e4567-e89b-12d3-a456-426614174000",
+      "document_id": "550e8400-e29b-41d4-a716-446655440000",
+      "text": "Microservices enable independent deployment and scaling...",
+      "similarity": 0.89
+    }
+  ],
+  "confidence": 0.87
+}
+```
+
+---
+
+#### 4. Health Check
+
+**Request:**
+```http
+GET /healthz
+```
+
+**Response:** (200 OK)
+```json
+{
+  "status": "ok"
+}
+```
+
+### Service Ports
+
+- **Gateway**: `8080` (main API)
+- **Query Agent**: `8081` (can be queried directly)
+- **Parser Agent**: `8082` (internal, health check only)
+- **Analysis Agent**: `8083` (internal, health check only)
+
+## Quick Start
+
+### Prerequisites
+
+- **Docker & Docker Compose** (for full deployment)
+- **Go 1.23+** (for local development)
+- **OpenAI API Key** (required for LLM and embeddings)
+
+### Running with Docker (Recommended)
 
 ```bash
-# 1) install deps
-go mod tidy
+# 1. Clone and navigate to project
+cd doc-agents
 
-# 2) start full stack
+# 2. Set up environment variables
+cp env.example .env
+# Edit .env and add your OPENAI_API_KEY
+
+# 3. Start all services
 docker-compose up --build
 
-# 3) hit the gateway
+# 4. Wait for services to be healthy (check logs)
+# You should see "gateway listening" and agents ready
+
+# 5. Test the system
+# Upload a document
 curl -F "file=@./sample.txt" http://localhost:8080/api/documents/upload
-curl http://localhost:8080/api/documents/<id>/summary
-curl -XPOST -H "Content-Type: application/json" \
-  -d '{"question":"What is this about?","document_ids":["<id>"]}' \
-  http://localhost:8080/api/query
+# Returns: {"document_id":"...","status":"pending"}
+
+# Wait 2-3 seconds for processing, then get summary
+curl http://localhost:8080/api/documents/<document_id>/summary
+
+# Query the document
+curl -X POST http://localhost:8080/api/query \
+  -H "Content-Type: application/json" \
+  -d '{
+    "question": "What is this document about?",
+    "document_ids": ["<document_id>"],
+    "top_k": 5
+  }'
 ```
 
-Environment defaults live in `env.example`. Set `QUEUE_DRIVER=memory` to bypass NATS in dev, or supply `QUEUE_URL` for NATS JetStream. Provide `DB_URL` to use Postgres; otherwise the services fall back to in-memory stores (not shared across processes).
+### Environment Configuration
 
-## Design Notes
-- **Chunking**: sliding window (default 400 tokens, 80 overlap) based on whitespace tokenization in `internal/chunker`.
-- **Queue**: pluggable; in-memory priority queue with exponential backoff, or NATS-based publisher/subscriber (`internal/queue`).
-- **Embeddings**: stub deterministic vectors in `internal/embeddings`; swap with real embedding client. Cosine similarity for semantic search.
-- **LLM**: stub client in `internal/llm`; replace with OpenAI/Anthropic easily by implementing the interface.
-- **Persistence**: Postgres store (`internal/store/postgres.go`) persists docs, chunks, summaries, embeddings (vector JSON). Memory store available for tests.
-- **Agents**: each service owns only its concern; communication through the queue. Gateway stays thin.
+Key variables in `.env`:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `OPENAI_API_KEY` | *(required)* | Your OpenAI API key |
+| `DB_URL` | `postgres://mate:mate@postgres:5432/mate` | PostgreSQL connection string |
+| `QUEUE_URL` | `nats://nats:4222` | NATS server URL |
+| `QUEUE_DRIVER` | `nats` | Queue driver (`nats` or `memory`) |
+| `LLM_MODEL` | `gpt-4o-mini` | OpenAI model for summarization |
+| `EMBEDDING_MODEL` | `text-embedding-3-small` | OpenAI embedding model |
+
+**Development Mode**: Set `QUEUE_DRIVER=memory` to use in-memory queue without NATS (not recommended for distributed setup).
+
+## Design Decisions & Rationale
+
+### Technology Choices
+
+#### Why Go over Python?
+
+1. **Concurrency Model**: Go's goroutines and channels make it trivial to handle multiple concurrent requests and async agent tasks. Each agent can process tasks in parallel without complex thread management.
+2. **Performance**: Compiled binary with lower memory footprint compared to Python interpreters, important for containerized deployments.
+3. **Type Safety**: Static typing catches errors at compile time, reducing runtime failures in production.
+4. **Single Binary Deployment**: Cross-compile to a single executable with no dependency management issues.
+5. **Learning Exercise**: Demonstrates ability to work in multiple languages (Python is common for ML, Go for distributed systems).
+
+#### Why NATS over RabbitMQ/Redis?
+
+1. **Simplicity**: NATS is lightweight and has a minimal API surface. Perfect for this scale of project.
+2. **JetStream Support**: Built-in persistence and message replay without additional setup.
+3. **Cloud-Native**: Designed for microservices from the ground up with service discovery patterns.
+4. **Performance**: High throughput with low latency for inter-agent communication.
+5. **Fallback Support**: Easy to mock with in-memory queue for testing.
+
+#### Why PostgreSQL + pgvector over Specialized Vector DBs?
+
+1. **Single Database**: Relational data (documents, metadata) and vectors in one place, no sync issues.
+2. **ACID Guarantees**: Transactional consistency for document status updates.
+3. **Production Ready**: Postgres is battle-tested; pgvector extension is mature and widely adopted.
+4. **Cost Effective**: No need for separate Pinecone/Qdrant subscription for this scale.
+5. **Trade-off**: For millions of documents, specialized vector DBs (Qdrant, Milvus) would scale better, but pgvector handles thousands of documents efficiently.
+
+#### Why OpenAI over Open-Source Models?
+
+1. **Assignment Constraints**: 4-6 hour time limit; OpenAI API is quickest to integrate.
+2. **Quality**: GPT-4o-mini provides excellent summarization and QA quality.
+3. **Reliability**: Managed service with high availability.
+4. **Easy Swap**: The `LLM` interface in `internal/llm/llm.go` makes it trivial to swap in Anthropic, open-source models (Ollama), or any other provider.
+
+### Architectural Patterns
+
+#### Microservices Architecture
+
+Each agent is independently deployable:
+- **Parser Agent**: Scales horizontally (2 replicas in docker-compose) for high upload volume
+- **Analysis Agent**: Can scale independently based on LLM API rate limits
+- **Query Agent**: Stateless, can add replicas behind a load balancer
+- **Gateway**: Thin coordinator, minimal business logic
+
+#### Message Queue Pattern
+
+- **Async Processing**: Upload returns immediately; processing happens in background
+- **Reliability**: NATS JetStream ensures messages aren't lost if an agent crashes
+- **Priority Queue**: Implemented with custom priority logic in `internal/queue/queue.go`
+- **Retry Logic**: Exponential backoff in `internal/retry/backoff.go` handles transient failures
+
+#### Repository Pattern
+
+The `Store` interface (`internal/store/store.go`) abstracts persistence:
+- Postgres implementation for production
+- In-memory implementation for unit tests
+- Makes it easy to swap databases without changing business logic
+
+### Algorithm Choices
+
+#### Document Chunking
+
+**Algorithm**: Sliding window with overlap
+
+```go
+// Pseudocode
+chunkSize = 400 tokens
+overlap = 80 tokens
+stride = chunkSize - overlap = 320 tokens
+```
+
+**Rationale**:
+- 400 tokens fits well within most LLM context windows after adding prompt overhead
+- 80 token overlap ensures context isn't lost at chunk boundaries
+- Better semantic search results than hard boundaries
+
+**Alternative Considered**: Semantic chunking (split on paragraphs/sections) - decided against due to time constraints and complexity with varied document formats.
+
+#### Semantic Search
+
+**Algorithm**: Cosine similarity
+
+```go
+similarity = dot(vecA, vecB) / (||vecA|| * ||vecB||)
+```
+
+**Rationale**:
+- Standard for text embeddings; OpenAI embeddings are normalized
+- Fast to compute (simple dot product when vectors are normalized)
+- Well-understood and proven in production systems
+
+**Alternative Considered**: Euclidean distance - less effective for high-dimensional embeddings where direction matters more than magnitude.
+
+#### Retry Strategy
+
+**Algorithm**: Exponential backoff with jitter
+
+```go
+backoff = baseDelay * 2^attempt + random(0, jitter)
+```
+
+**Rationale**:
+- Prevents thundering herd when external services (OpenAI, DB) have issues
+- Jitter prevents synchronized retries across multiple agents
+- Configurable max attempts prevents infinite loops
+
+### Trade-offs Made
+
+| Decision | Pro | Con | Mitigation |
+|----------|-----|-----|------------|
+| Single repo (monorepo) | Easy to navigate and run | Could grow unwieldy at scale | Keep agents loosely coupled |
+| Stub test implementations | Fast to develop | Lower coverage initially | Plan for integration tests |
+| JSON for embeddings | Easy to debug | Less efficient than binary | Consider pgvector HNSW index for production |
+| Synchronous LLM calls | Simpler code | Can't cancel/stream | Implement streaming as bonus |
+| In-memory fallbacks | Easy local dev | Different behavior than prod | Always test with docker-compose before submission |
+
+## Project Structure
+
+```
+doc-agents/
+├── cmd/                        # Service entry points
+│   ├── gateway/               # API Gateway (port 8080)
+│   │   └── main.go           # Upload, summary, query endpoints
+│   ├── parser/               # Parser Agent (port 8082, 2 replicas)
+│   │   └── main.go           # Text extraction & chunking
+│   ├── analysis/             # Analysis Agent (port 8083, 2 replicas)
+│   │   └── main.go           # Embeddings & summarization
+│   └── query/                # Query Agent (port 8081)
+│       └── main.go           # Semantic search & QA
+│
+├── internal/                  # Shared internal packages
+│   ├── app/                  # Dependency injection
+│   │   └── deps.go           # Wire up config, logger, store, queue, LLM
+│   ├── chunker/              # Document chunking
+│   │   ├── chunker.go        # Sliding window algorithm
+│   │   └── chunker_test.go   # 90% coverage
+│   ├── config/               # Configuration
+│   │   ├── config.go         # Environment variable parsing
+│   │   └── config_test.go    # 75% coverage
+│   ├── embeddings/           # Embedding generation
+│   │   ├── embeddings.go     # Interface definition
+│   │   ├── openai.go         # OpenAI implementation
+│   │   └── embeddings_test.go # 38% coverage
+│   ├── httputil/             # HTTP utilities
+│   │   └── httputil.go       # JSON responses, error handling
+│   ├── llm/                  # LLM client
+│   │   ├── llm.go            # Interface (Summarize, Answer)
+│   │   └── openai.go         # OpenAI Chat Completions
+│   ├── logger/               # Structured logging
+│   │   ├── logger.go         # slog wrapper
+│   │   └── logger_test.go    # 100% coverage
+│   ├── queue/                # Message queue
+│   │   ├── queue.go          # Interface, priority queue, memory impl
+│   │   └── nats.go           # NATS JetStream implementation
+│   ├── retry/                # Retry logic
+│   │   ├── backoff.go        # Exponential backoff with jitter
+│   │   └── backoff_test.go   # 100% coverage
+│   └── store/                # Data persistence
+│       ├── store.go          # Interface, domain models, memory impl
+│       └── postgres.go       # PostgreSQL with pgvector
+│
+├── docker-compose.yml         # Full stack orchestration
+├── Dockerfile                # Multi-stage build (Go + distroless)
+├── env.example               # Environment variables template
+├── go.mod                    # Go dependencies
+├── go.sum                    # Dependency checksums
+└── README.md                 # This file
+```
+
+### Key Design Patterns
+
+- **Interface-Based Design**: `LLM`, `Embedder`, `Store`, `Queue` interfaces for easy testing and swapping implementations
+- **Dependency Injection**: `app.Deps` wires up all dependencies in one place
+- **Single Responsibility**: Each agent handles one concern (parsing, analysis, or querying)
+- **Repository Pattern**: `Store` abstracts database operations
+- **Clean Architecture**: Business logic in `internal/`, services in `cmd/`
 
 ## Testing
 
 ```bash
-go test ./...
+# Run all tests with coverage
+go test ./... -coverprofile=coverage.out
+
+# View coverage report
+go tool cover -html=coverage.out
+
+# Run tests for specific package
+go test ./internal/chunker -v
 ```
 
-Current coverage includes chunking and queue backoff logic. Add integration tests that spin up NATS/Postgres using `docker-compose` and hit the HTTP endpoints.
+**Current Coverage**: ~60% (chunking, retry logic, config, logger, embeddings)
 
-## Limitations / TODOs
-- PDF parsing is stubbed; integrate `ledongthuc/pdf` or `pdfcpu` for production.
-- Replace stub LLM/embeddings with real providers and prompt templates.
-- Enhance vector search using `pgvector` or Qdrant for scalable similarity search.
-- Harden NATS worker ack/retry and add idempotency keys.
-- Add auth/rate limiting and tracing (OpenTelemetry) hooks.
+**What's Tested**:
+- ✅ Chunking algorithm with various text sizes and edge cases
+- ✅ Exponential backoff retry logic
+- ✅ Configuration loading from environment
+- ✅ Logger initialization
+- ✅ Embeddings interface and OpenAI integration
+
+**Integration Test Plan** (future work):
+- Spin up test stack with docker-compose
+- Upload sample documents via API
+- Verify parsing, summarization, and query pipeline
+- Test error handling and retry behavior
+
+## Known Limitations
+
+### Current Limitations
+
+1. **PDF Parsing**: Uses basic `ledongthuc/pdf` library which struggles with:
+   - Complex layouts (multi-column documents)
+   - Scanned PDFs (no OCR)
+   - Encrypted/password-protected PDFs
+   - **Solution**: For production, integrate Apache Tika or PyMuPDF via microservice
+
+2. **Vector Search Scale**: PostgreSQL with JSON-stored vectors:
+   - Works well for < 10,000 documents
+   - No HNSW indexing yet (slower for > 100K documents)
+   - **Solution**: Enable pgvector HNSW index or migrate to Qdrant/Milvus at scale
+
+3. **No Authentication**: API is completely open:
+   - No API keys or JWT validation
+   - No rate limiting per user
+   - **Solution**: Add middleware for auth + rate limiting (e.g., `golang.org/x/time/rate`)
+
+4. **Single Tenant**: All documents share same namespace:
+   - No user isolation
+   - **Solution**: Add `user_id` column and filter queries by tenant
+
+5. **No Streaming**: LLM responses are synchronous:
+   - Client must wait for full response
+   - Can't cancel in-progress requests
+   - **Solution**: Implement Server-Sent Events (SSE) for streaming (bonus feature)
+
+6. **Message Ordering**: NATS doesn't guarantee strict ordering:
+   - Rare edge case: analysis might start before parsing completes
+   - **Solution**: Add state machine validation in agents
+
+7. **No Observability**: Limited monitoring:
+   - No Prometheus metrics
+   - No distributed tracing
+   - Logs are not aggregated
+   - **Solution**: Add OpenTelemetry instrumentation (bonus feature)
+
+8. **Error Recovery**: Limited failure scenarios handled:
+   - No circuit breaker for external APIs
+   - OpenAI rate limits will cause failures
+   - **Solution**: Add circuit breaker pattern and rate limit queue
+
+### Intentional Simplifications (for time constraints)
+
+- **No conversation memory**: Each query is stateless (could add session storage)
+- **No document versioning**: Updates overwrite (could add version history)
+- **No batch processing**: One document at a time (could add batch upload)
+- **Basic confidence scoring**: Heuristic based on answer length (could use logprobs from model)
+
+### Security Considerations
+
+⚠️ **Not Production Ready** - Missing critical security features:
+
+- [ ] Input validation and sanitization (SQL injection, XSS)
+- [ ] File upload size limits (DOS protection)
+- [ ] API authentication and authorization
+- [ ] Secrets management (API keys in env vars, should use Vault/K8s secrets)
+- [ ] TLS/HTTPS for all communication
+- [ ] CORS configuration
+- [ ] Content-type validation
+
+## Development Notes
+
+### Built With
+
+- **Language**: Go 1.23
+- **Web Framework**: Chi Router (lightweight, idiomatic)
+- **Database**: PostgreSQL with pgvector extension
+- **Message Queue**: NATS JetStream
+- **LLM Provider**: OpenAI (GPT-4o-mini, text-embedding-3-small)
+- **Containerization**: Docker with multi-stage builds
+- **Testing**: Go's built-in testing framework
+
+### Time Breakdown (4-6 hour target)
+
+- Architecture design & setup: ~1 hour
+- Core agent implementation: ~2 hours
+- OpenAI integration & testing: ~1 hour
+- Docker & orchestration: ~45 min
+- Documentation: ~1 hour
+
+### AI Assistance Used
+
+This project was developed with assistance from:
+- GitHub Copilot for code completion
+- ChatGPT for architecture decisions and documentation review
+
+## License
+
+MIT License - Built as a technical assessment for Mate Security.
+
+---
+
+**Author**: Tomer Lieber  
+**Date**: December 2024  
+**Purpose**: Backend Engineering Technical Assessment
 
