@@ -619,13 +619,8 @@ This project was developed with assistance from:
 - GitHub Copilot for code completion
 - ChatGPT for architecture decisions and documentation review
 
-## License
-
-MIT License - Built as a technical assessment for Mate Security.
-
 ---
 
 **Author**: Tomer Lieber  
-**Date**: December 2025  
-**Purpose**: Backend Engineering Technical Assessment
+**Date**: December 2025
 
