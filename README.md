@@ -445,10 +445,9 @@ backoff = baseDelay * 2^attempt + random(0, jitter)
 | Decision | Pro | Con | Mitigation |
 |----------|-----|-----|------------|
 | Single repo (monorepo) | Easy to navigate and run | Could grow unwieldy at scale | Keep agents loosely coupled |
-| Stub test implementations | Fast to develop | Lower coverage initially | Plan for integration tests |
 | JSON for embeddings | Easy to debug | Less efficient than binary | Consider pgvector HNSW index for production |
 | Synchronous LLM calls | Simpler code | Can't cancel/stream | Implement streaming as bonus |
-| In-memory fallbacks | Easy local dev | Different behavior than prod | Always test with docker-compose before submission |
+| Single database instance | Simple setup | Single point of failure | Use read replicas and connection pooling for production |
 
 ## Project Structure
 
