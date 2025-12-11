@@ -323,14 +323,17 @@ Key variables in `.env`:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
+| `PORT` | `8080` | HTTP server port |
+| `LOG_LEVEL` | `info` | Logging level (`debug`, `info`, `warn`, `error`) |
 | `OPENAI_API_KEY` | *(required)* | Your OpenAI API key |
-| `DB_URL` | `postgres://mate:mate@postgres:5432/mate` | PostgreSQL connection string |
-| `QUEUE_URL` | `nats://nats:4222` | NATS server URL |
-| `QUEUE_DRIVER` | `nats` | Queue driver (`nats` or `memory`) |
-| `LLM_MODEL` | `gpt-4o-mini` | OpenAI model for summarization |
+| `LLM_MODEL` | `gpt-4o-mini` | OpenAI model for summarization and QA |
 | `EMBEDDING_MODEL` | `text-embedding-3-small` | OpenAI embedding model |
+| `STORE_PROVIDER` | `postgres` | Database provider (currently only `postgres` supported) |
+| `DB_URL` | `postgres://mate:mate@postgres:5432/mate` | PostgreSQL connection string |
+| `QUEUE_DRIVER` | `nats` | Message queue driver (currently only `nats` supported) |
+| `QUEUE_URL` | `nats://nats:4222` | NATS server URL |
 
-**Development Mode**: Set `QUEUE_DRIVER=memory` to use in-memory queue without NATS (not recommended for distributed setup).
+**Note**: All environment variables are loaded via Docker Compose's `env_file`. For local development outside Docker, export them manually or source the `.env` file.
 
 ## Design Decisions & Rationale
 
