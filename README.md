@@ -108,7 +108,7 @@ flowchart TB
 #### Upload Flow
 ```
 1. Client uploads PDF/TXT → Gateway
-2. Gateway creates document record (status: pending)
+2. Gateway creates document record (status: processing)
 3. Gateway enqueues "parse" task → NATS
 4. Parser agent consumes task
 5. Parser extracts text, splits into chunks
@@ -161,7 +161,7 @@ curl -F "file=@./document.pdf" http://localhost:8080/api/documents/upload
 ```json
 {
   "document_id": "550e8400-e29b-41d4-a716-446655440000",
-  "status": "pending"
+  "status": "processing"
 }
 ```
 
@@ -291,7 +291,8 @@ cd doc-agents
 
 # 2. Set up environment variables
 cp env.example .env
-# Edit .env and add your OPENAI_API_KEY
+# Edit .env and replace sk-your-openai-api-key-here with your actual OpenAI API key
+# Other variables (database, ports, etc.) can remain as defaults
 
 # 3. Start all services
 docker-compose up --build
@@ -302,7 +303,7 @@ docker-compose up --build
 # 5. Test the system
 # Upload a document
 curl -F "file=@./sample.txt" http://localhost:8080/api/documents/upload
-# Returns: {"document_id":"...","status":"pending"}
+# Returns: {"document_id":"...","status":"processing"}
 
 # Wait 2-3 seconds for processing, then get summary
 curl http://localhost:8080/api/documents/<document_id>/summary
