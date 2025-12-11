@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/joho/godotenv"
 	"github.com/nats-io/nats.go"
 	"github.com/openai/openai-go/v3"
 
@@ -26,11 +25,9 @@ type Deps struct {
 	LLM      llm.Client
 }
 
-// Build loads env, config, and shared components.
+// Build loads config and shared components.
+// Environment variables should be set via Docker Compose, K8s, or shell.
 func Build() (Deps, error) {
-	if err := godotenv.Load(); err != nil {
-		return Deps{}, fmt.Errorf("failed to load environment variables: %w", err)
-	}
 	cfg := config.Load()
 	log := logger.New(cfg.LogLevel)
 
