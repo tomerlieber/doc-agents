@@ -384,7 +384,6 @@ Each agent is independently deployable:
 
 - **Async Processing**: Upload returns immediately; processing happens in background
 - **Reliability**: NATS JetStream ensures messages aren't lost if an agent crashes
-- **Priority Queue**: Implemented with custom priority logic in `internal/queue/queue.go`
 - **Retry Logic**: Exponential backoff in `internal/retry/backoff.go` handles transient failures
 
 #### Repository Pattern
