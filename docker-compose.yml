@@ -33,7 +33,7 @@ services:
       context: .
       args:
         SERVICE: gateway
-    env_file: [env.example]
+    env_file: [.env]
     environment:
       PORT: 8080
     depends_on:
@@ -54,7 +54,7 @@ services:
       context: .
       args:
         SERVICE: parser
-    env_file: [env.example]
+    env_file: [.env]
     environment:
       PORT: 8082
     depends_on:
@@ -75,7 +75,7 @@ services:
       context: .
       args:
         SERVICE: analysis
-    env_file: [env.example]
+    env_file: [.env]
     environment:
       PORT: 8083
     depends_on:
@@ -96,7 +96,7 @@ services:
       context: .
       args:
         SERVICE: query
-    env_file: [env.example]
+    env_file: [.env]
     environment:
       PORT: 8081
     depends_on:
