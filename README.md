@@ -390,7 +390,6 @@ Each agent is independently deployable:
 
 The `Store` interface (`internal/store/store.go`) abstracts persistence:
 - Postgres implementation for production
-- In-memory implementation for unit tests
 - Makes it easy to swap databases without changing business logic
 
 ### Algorithm Choices
