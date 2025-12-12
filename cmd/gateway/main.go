@@ -76,7 +76,7 @@ func uploadHandler(deps app.Deps) http.HandlerFunc {
 
 		// Validate file type
 		contentType := header.Header.Get("Content-Type")
-		
+
 		// If Content-Type is missing, detect from filename
 		if contentType == "" {
 			ext := strings.ToLower(filepath.Ext(header.Filename))
@@ -90,7 +90,7 @@ func uploadHandler(deps app.Deps) http.HandlerFunc {
 				return
 			}
 		}
-		
+
 		// Validate Content-Type
 		allowedTypes := map[string]bool{
 			"text/plain":      true,
