@@ -2,6 +2,7 @@ package httputil
 
 import (
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -43,6 +44,18 @@ func HealthHandler(deps app.Deps) http.HandlerFunc {
 			deps.Log.Warn("healthz write failed", "err", err)
 		}
 	}
+}
+
+// ServeHealth starts an HTTP server with a health check endpoint.
+// serviceName is used for logging (e.g., "parser", "analysis").
+// This is a convenience function for services that only need a health endpoint.
+func ServeHealth(deps app.Deps, serviceName string) error {
+	r := NewRouter(deps.Log)
+	r.Get("/healthz", HealthHandler(deps))
+
+	addr := fmt.Sprintf(":%d", deps.Config.Port)
+	deps.Log.Info(serviceName+" health endpoint listening", "addr", addr)
+	return http.ListenAndServe(addr, r)
 }
 
 // RequestLogger is a lightweight HTTP logger that uses slog.

@@ -3,9 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"log/slog"
-	"net/http"
 	"os"
 
 	"github.com/google/uuid"
@@ -45,12 +43,7 @@ func main() {
 
 	// Run health check server
 	g.Go(func() error {
-		r := httputil.NewRouter(deps.Log)
-		r.Get("/healthz", httputil.HealthHandler(deps))
-
-		addr := fmt.Sprintf(":%d", deps.Config.Port)
-		deps.Log.Info("analysis health endpoint listening", "addr", addr)
-		return http.ListenAndServe(addr, r)
+		return httputil.ServeHealth(deps, "analysis")
 	})
 
 	// Wait for either to fail
