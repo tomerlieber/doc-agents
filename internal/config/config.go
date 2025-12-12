@@ -11,6 +11,9 @@ type Config struct {
 	// Server
 	Port     int    `env:"PORT" envDefault:"8080"`
 	LogLevel string `env:"LOG_LEVEL" envDefault:"info"`
+	
+	// Upload limits
+	MaxUploadSize int64 `env:"MAX_UPLOAD_SIZE" envDefault:"10485760"` // 10MB in bytes
 
 	// Store
 	StoreProvider string `env:"STORE_PROVIDER" envDefault:"postgres"` // "postgres" (production database)

@@ -15,9 +15,9 @@ import (
 )
 
 type queryRequest struct {
-	Question    string   `json:"question"`
-	DocumentIDs []string `json:"document_ids"`
-	TopK        int      `json:"top_k"`
+	Question    string   `json:"question" validate:"required,min=3,max=500"`
+	DocumentIDs []string `json:"document_ids" validate:"required,min=1,dive,uuid4"`
+	TopK        int      `json:"top_k" validate:"omitempty,min=1,max=20"`
 }
 
 type source struct {
@@ -51,6 +51,13 @@ func queryHandler(deps app.Deps) http.HandlerFunc {
 			httputil.Fail(deps.Log, w, "invalid payload", err, http.StatusBadRequest)
 			return
 		}
+
+		// Validate request
+		if err := httputil.Validator.Struct(&req); err != nil {
+			httputil.ValidationError(deps.Log, w, err)
+			return
+		}
+
 		if req.TopK == 0 {
 			req.TopK = 5
 		}

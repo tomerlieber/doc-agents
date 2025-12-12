@@ -4,10 +4,12 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/go-playground/validator/v10"
 
 	"doc-agents/internal/app"
 )
@@ -84,4 +86,40 @@ func Fail(log *slog.Logger, w http.ResponseWriter, message string, err error, st
 		status = http.StatusInternalServerError
 	}
 	http.Error(w, message, status)
+}
+
+// Validator is a global validator instance for request validation.
+var Validator = validator.New()
+
+// ValidationError formats validator errors into user-friendly messages.
+func ValidationError(log *slog.Logger, w http.ResponseWriter, err error) {
+	var messages []string
+	if validationErrs, ok := err.(validator.ValidationErrors); ok {
+		for _, fieldErr := range validationErrs {
+			messages = append(messages, formatFieldError(fieldErr))
+		}
+	} else {
+		messages = append(messages, err.Error())
+	}
+
+	Fail(log, w, strings.Join(messages, "; "), err, http.StatusBadRequest)
+}
+
+// formatFieldError converts a validator.FieldError to a human-readable message.
+func formatFieldError(fe validator.FieldError) string {
+	field := fe.Field()
+	switch fe.Tag() {
+	case "required":
+		return field + " is required"
+	case "min":
+		return field + " must be at least " + fe.Param()
+	case "max":
+		return field + " must be at most " + fe.Param()
+	case "uuid4":
+		return field + " must be a valid UUID"
+	case "dive":
+		return field + " contains invalid values"
+	default:
+		return field + " is invalid"
+	}
 }

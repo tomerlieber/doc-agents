@@ -49,14 +49,42 @@ func main() {
 }
 
 func uploadHandler(deps app.Deps) http.HandlerFunc {
+	maxFileSize := deps.Config.MaxUploadSize
+
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
+		
+		// Validate file size before parsing
+		if r.ContentLength > maxFileSize {
+			httputil.Fail(deps.Log, w, fmt.Sprintf("file too large (max %d bytes)", maxFileSize), nil, http.StatusBadRequest)
+			return
+		}
+		
 		file, header, err := r.FormFile("file")
 		if err != nil {
 			httputil.Fail(deps.Log, w, "file is required", err, http.StatusBadRequest)
 			return
 		}
 		defer file.Close()
+		
+		// Validate file size
+		if header.Size > maxFileSize {
+			httputil.Fail(deps.Log, w, fmt.Sprintf("file too large (max %d bytes)", maxFileSize), nil, http.StatusBadRequest)
+			return
+		}
+
+		// Validate file type
+		allowedTypes := map[string]bool{
+			"text/plain":      true,
+			"application/pdf": true,
+			"":                true, // Allow empty content-type (will detect from filename)
+		}
+		contentType := header.Header.Get("Content-Type")
+		if !allowedTypes[contentType] {
+			httputil.Fail(deps.Log, w, "unsupported file type (only PDF and TXT allowed)", nil, http.StatusBadRequest)
+			return
+		}
+
 		content, err := io.ReadAll(file)
 		if err != nil {
 			httputil.Fail(deps.Log, w, "failed to read file", err, http.StatusInternalServerError)

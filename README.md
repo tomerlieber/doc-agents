@@ -326,6 +326,7 @@ Key variables in `.env`:
 |----------|---------|-------------|
 | `PORT` | `8080` | HTTP server port |
 | `LOG_LEVEL` | `info` | Logging level (`debug`, `info`, `warn`, `error`) |
+| `MAX_UPLOAD_SIZE` | `10485760` | Maximum file upload size in bytes (default: 10MB) |
 | `OPENAI_API_KEY` | *(required)* | Your OpenAI API key |
 | `LLM_MODEL` | `gpt-4o-mini` | OpenAI model for summarization and QA |
 | `EMBEDDING_MODEL` | `text-embedding-3-small` | OpenAI embedding model |
