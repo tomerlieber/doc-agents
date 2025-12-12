@@ -3,9 +3,10 @@ package store
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -54,6 +55,11 @@ func (s *PostgresStore) migrate(ctx context.Context) error {
 		_, _ = s.db.ExecContext(context.Background(), `SELECT pg_advisory_unlock($1)`, lockID)
 	}()
 
+	// Enable pgvector extension
+	if _, err := s.db.ExecContext(ctx, `CREATE EXTENSION IF NOT EXISTS vector`); err != nil {
+		return fmt.Errorf("failed to create vector extension: %w", err)
+	}
+
 	stmts := []string{
 		`CREATE TABLE IF NOT EXISTS documents (
 			id UUID PRIMARY KEY,
@@ -75,7 +81,7 @@ func (s *PostgresStore) migrate(ctx context.Context) error {
 		);`,
 		`CREATE TABLE IF NOT EXISTS embeddings (
 			chunk_id UUID PRIMARY KEY REFERENCES chunks(id) ON DELETE CASCADE,
-			vector JSONB,
+			vector vector(1536),
 			model TEXT
 		);`,
 	}
@@ -84,6 +90,48 @@ func (s *PostgresStore) migrate(ctx context.Context) error {
 			return err
 		}
 	}
+
+	// Create IVFFlat index for fast similarity search
+	_, err = s.db.ExecContext(ctx, `
+		CREATE INDEX IF NOT EXISTS embeddings_vector_idx 
+		ON embeddings USING ivfflat (vector vector_cosine_ops) 
+		WITH (lists = 100)
+	`)
+	if err != nil {
+		return fmt.Errorf("failed to create vector index: %w", err)
+	}
+
+	// Handle migration from JSONB to vector type if needed
+	var columnType string
+	err = s.db.QueryRowContext(ctx, `
+		SELECT data_type 
+		FROM information_schema.columns 
+		WHERE table_name = 'embeddings' AND column_name = 'vector'
+	`).Scan(&columnType)
+
+	if err == nil && columnType == "jsonb" {
+		// Migration needed: convert JSONB to vector type
+		_, err = s.db.ExecContext(ctx, `
+			ALTER TABLE embeddings 
+			ALTER COLUMN vector TYPE vector(1536) 
+			USING (vector::text)::vector
+		`)
+		if err != nil {
+			return fmt.Errorf("failed to migrate vector column from jsonb: %w", err)
+		}
+
+		// Recreate index after type change
+		_, _ = s.db.ExecContext(ctx, `DROP INDEX IF EXISTS embeddings_vector_idx`)
+		_, err = s.db.ExecContext(ctx, `
+			CREATE INDEX embeddings_vector_idx 
+			ON embeddings USING ivfflat (vector vector_cosine_ops) 
+			WITH (lists = 100)
+		`)
+		if err != nil {
+			return fmt.Errorf("failed to create vector index after migration: %w", err)
+		}
+	}
+
 	return nil
 }
 
@@ -142,15 +190,14 @@ func (s *PostgresStore) SaveSummary(ctx context.Context, docID uuid.UUID, summar
 }
 
 func (s *PostgresStore) SaveEmbedding(ctx context.Context, emb Embedding) error {
-	vecJSON, err := json.Marshal(emb.Vector)
-	if err != nil {
-		return err
-	}
-	_, err = s.db.ExecContext(ctx, `
+	// Convert []float32 to pgvector array format: "[0.1,0.2,0.3,...]"
+	vecStr := vectorToString(emb.Vector)
+
+	_, err := s.db.ExecContext(ctx, `
 		INSERT INTO embeddings(chunk_id, vector, model)
-		VALUES($1,$2,$3)
+		VALUES($1,$2::vector,$3)
 		ON CONFLICT (chunk_id) DO UPDATE SET vector=excluded.vector, model=excluded.model`,
-		emb.ChunkID, vecJSON, emb.Model)
+		emb.ChunkID, vecStr, emb.Model)
 	return err
 }
 
@@ -170,17 +217,33 @@ func (s *PostgresStore) GetSummary(ctx context.Context, docID uuid.UUID) (Summar
 }
 
 func (s *PostgresStore) TopK(ctx context.Context, docIDs []uuid.UUID, vector embeddings.Vector, k int) ([]SearchResult, error) {
+	// Convert query vector to pgvector format
+	queryVec := vectorToString(vector)
+
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT c.id, c.document_id, c.ord, c.text, c.token_count, e.vector, e.model,
-		       COALESCE(s.summary,''), COALESCE(s.key_points, ARRAY[]::TEXT[])
+		SELECT 
+			c.id, 
+			c.document_id, 
+			c.ord, 
+			c.text, 
+			c.token_count,
+			e.model,
+			1 - (e.vector <=> $1::vector) as similarity,
+			COALESCE(s.summary, ''), 
+			COALESCE(s.key_points, ARRAY[]::TEXT[])
 		FROM embeddings e
 		JOIN chunks c ON c.id = e.chunk_id
 		LEFT JOIN summaries s ON s.document_id = c.document_id
-		WHERE c.document_id = ANY($1)`, pqUUIDArray(docIDs))
+		WHERE c.document_id = ANY($2)
+		ORDER BY e.vector <=> $1::vector
+		LIMIT $3
+	`, queryVec, pqUUIDArray(docIDs), k)
+
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
+
 	var results []SearchResult
 	for rows.Next() {
 		var (
@@ -189,19 +252,15 @@ func (s *PostgresStore) TopK(ctx context.Context, docIDs []uuid.UUID, vector emb
 			ord        int
 			text       string
 			tokens     int
-			vecJSON    []byte
 			model      string
+			similarity float32
 			summaryTxt string
 			keyPoints  []string
 		)
-		if err := rows.Scan(&chunkID, &docID, &ord, &text, &tokens, &vecJSON, &model, &summaryTxt, pq.Array(&keyPoints)); err != nil {
+		if err := rows.Scan(&chunkID, &docID, &ord, &text, &tokens, &model, &similarity, &summaryTxt, pq.Array(&keyPoints)); err != nil {
 			return nil, err
 		}
-		var vec embeddings.Vector
-		if err := json.Unmarshal(vecJSON, &vec); err != nil {
-			return nil, err
-		}
-		score := embeddings.CosineSimilarity(vector, vec)
+
 		results = append(results, SearchResult{
 			Chunk: Chunk{
 				ID:         chunkID,
@@ -210,7 +269,7 @@ func (s *PostgresStore) TopK(ctx context.Context, docIDs []uuid.UUID, vector emb
 				Text:       text,
 				TokenCount: tokens,
 			},
-			Score: score,
+			Score: similarity,
 			Summary: Summary{
 				DocumentID: docID,
 				Summary:    summaryTxt,
@@ -218,18 +277,8 @@ func (s *PostgresStore) TopK(ctx context.Context, docIDs []uuid.UUID, vector emb
 			},
 		})
 	}
-	// naive sort
-	for i := 0; i < len(results); i++ {
-		for j := i + 1; j < len(results); j++ {
-			if results[j].Score > results[i].Score {
-				results[i], results[j] = results[j], results[i]
-			}
-		}
-	}
-	if k > len(results) {
-		k = len(results)
-	}
-	return results[:k], nil
+
+	return results, nil
 }
 
 func (s *PostgresStore) ListChunks(ctx context.Context, docID uuid.UUID) ([]Chunk, error) {
@@ -262,4 +311,17 @@ func pqUUIDArray(items []uuid.UUID) any {
 		return []uuid.UUID{}
 	}
 	return items
+}
+
+// vectorToString converts a Vector ([]float32) to pgvector array format.
+// Format: "[0.1,0.2,0.3,...]"
+func vectorToString(v embeddings.Vector) string {
+	if len(v) == 0 {
+		return "[]"
+	}
+	parts := make([]string, len(v))
+	for i, val := range v {
+		parts[i] = strconv.FormatFloat(float64(val), 'f', -1, 32)
+	}
+	return "[" + strings.Join(parts, ",") + "]"
 }
