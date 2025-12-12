@@ -53,20 +53,20 @@ func uploadHandler(deps app.Deps) http.HandlerFunc {
 
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
-		
+
 		// Validate file size before parsing
 		if r.ContentLength > maxFileSize {
 			httputil.Fail(deps.Log, w, fmt.Sprintf("file too large (max %d bytes)", maxFileSize), nil, http.StatusBadRequest)
 			return
 		}
-		
+
 		file, header, err := r.FormFile("file")
 		if err != nil {
 			httputil.Fail(deps.Log, w, "file is required", err, http.StatusBadRequest)
 			return
 		}
 		defer file.Close()
-		
+
 		// Validate file size
 		if header.Size > maxFileSize {
 			httputil.Fail(deps.Log, w, fmt.Sprintf("file too large (max %d bytes)", maxFileSize), nil, http.StatusBadRequest)
