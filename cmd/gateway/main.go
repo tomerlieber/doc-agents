@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -74,12 +75,27 @@ func uploadHandler(deps app.Deps) http.HandlerFunc {
 		}
 
 		// Validate file type
+		contentType := header.Header.Get("Content-Type")
+		
+		// If Content-Type is missing, detect from filename
+		if contentType == "" {
+			ext := strings.ToLower(filepath.Ext(header.Filename))
+			switch ext {
+			case ".txt":
+				contentType = "text/plain"
+			case ".pdf":
+				contentType = "application/pdf"
+			default:
+				httputil.Fail(deps.Log, w, "unsupported file type (only PDF and TXT allowed)", nil, http.StatusBadRequest)
+				return
+			}
+		}
+		
+		// Validate Content-Type
 		allowedTypes := map[string]bool{
 			"text/plain":      true,
 			"application/pdf": true,
-			"":                true, // Allow empty content-type (will detect from filename)
 		}
-		contentType := header.Header.Get("Content-Type")
 		if !allowedTypes[contentType] {
 			httputil.Fail(deps.Log, w, "unsupported file type (only PDF and TXT allowed)", nil, http.StatusBadRequest)
 			return
