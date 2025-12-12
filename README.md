@@ -243,14 +243,15 @@ curl -X POST http://localhost:8080/api/query \
   "sources": [
     {
       "chunk_id": "123e4567-e89b-12d3-a456-426614174000",
-      "document_id": "550e8400-e29b-41d4-a716-446655440000",
-      "text": "Microservices enable independent deployment and scaling...",
-      "similarity": 0.89
+      "score": 0.89,
+      "preview": "Microservices enable independent deployment and scaling, allowing teams to work autonomously. They enable better fault isolation..."
     }
   ],
   "confidence": 0.87
 }
 ```
+
+*Note: The `preview` field contains the first 150 characters of the chunk text, truncated at word boundaries for readability.*
 
 ---
 

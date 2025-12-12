@@ -23,7 +23,7 @@ type queryRequest struct {
 type source struct {
 	ChunkID string  `json:"chunk_id"`
 	Score   float32 `json:"score"`
-	Text    string  `json:"text"`
+	Preview string  `json:"preview"` // Truncated text preview
 }
 
 func main() {
@@ -100,7 +100,7 @@ func queryHandler(deps app.Deps) http.HandlerFunc {
 			sources[i] = source{
 				ChunkID: res.Chunk.ID.String(),
 				Score:   res.Score,
-				Text:    res.Chunk.Text,
+				Preview: truncate(res.Chunk.Text, 150), // 150 char preview
 			}
 		}
 
@@ -110,4 +110,16 @@ func queryHandler(deps app.Deps) http.HandlerFunc {
 			"confidence": confidence,
 		})
 	}
+}
+
+// truncate limits text to maxLen characters, cutting at word boundary.
+func truncate(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	// Find last space before maxLen to avoid cutting words
+	if idx := strings.LastIndex(s[:maxLen], " "); idx > 0 {
+		return s[:idx] + "..."
+	}
+	return s[:maxLen] + "..."
 }
