@@ -76,16 +76,22 @@ func handleAnalyze(ctx context.Context, deps app.Deps, payload analyzeTaskPayloa
 		return err
 	}
 
-	// Generate embeddings for all chunks
+	// Generate embeddings for all chunks in a single batch request
+	texts := make([]string, len(chunks))
+	for i, c := range chunks {
+		texts[i] = c.Text
+	}
+
+	vectors, err := deps.Embedder.EmbedBatch(texts)
+	if err != nil {
+		return fmt.Errorf("failed to generate embeddings: %w", err)
+	}
+
 	embeddings := make([]store.Embedding, len(chunks))
 	for i, c := range chunks {
-		vec, err := deps.Embedder.Embed(c.Text)
-		if err != nil {
-			return fmt.Errorf("failed to generate embedding for chunk %s: %w", c.ID, err)
-		}
 		embeddings[i] = store.Embedding{
 			ChunkID: c.ID,
-			Vector:  vec,
+			Vector:  vectors[i],
 			Model:   deps.Config.EmbeddingModel,
 		}
 	}

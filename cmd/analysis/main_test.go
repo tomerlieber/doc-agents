@@ -62,8 +62,9 @@ func TestHandleAnalyze(t *testing.T) {
 					return sum.Summary == "Test summary"
 				})).Return(nil).Once()
 
-				// Expect embedder to be called for the chunk
-				e.On("Embed", "Test chunk").Return(embeddings.Vector{0.1, 0.2, 0.3}, nil).Once()
+				// Expect batch embedder to be called with all chunk texts
+				e.On("EmbedBatch", []string{"Test chunk"}).
+					Return([]embeddings.Vector{{0.1, 0.2, 0.3}}, nil).Once()
 
 				// Expect SaveEmbeddings (batch) to be called with 1 embedding
 				s.On("SaveEmbeddings", mock.Anything, mock.MatchedBy(func(embs []store.Embedding) bool {
@@ -95,9 +96,9 @@ func TestHandleAnalyze(t *testing.T) {
 
 				s.On("SaveSummary", mock.Anything, validDocID, mock.Anything).Return(nil).Once()
 
-				// Expect embedder called for each chunk
-				e.On("Embed", "First chunk").Return(embeddings.Vector{0.1}, nil).Once()
-				e.On("Embed", "Second chunk").Return(embeddings.Vector{0.2}, nil).Once()
+				// Expect batch embedder called with all chunk texts
+				e.On("EmbedBatch", []string{"First chunk", "Second chunk"}).
+					Return([]embeddings.Vector{{0.1}, {0.2}}, nil).Once()
 
 				// Expect SaveEmbeddings (batch) called with 2 embeddings
 				s.On("SaveEmbeddings", mock.Anything, mock.MatchedBy(func(embs []store.Embedding) bool {
@@ -146,6 +147,27 @@ func TestHandleAnalyze(t *testing.T) {
 			wantErr: true,
 		},
 		{
+			name: "EmbedBatch failure propagates error",
+			payload: analyzeTaskPayload{
+				DocumentID: validDocID.String(),
+				ChunkIDs:   []uuid.UUID{chunk1ID},
+			},
+			setup: func(s *store.MockStore, l *llm.MockClient, e *embeddings.MockEmbedder) {
+				s.On("ListChunks", mock.Anything, validDocID).
+					Return([]store.Chunk{{ID: chunk1ID, Text: "Test", TokenCount: 1}}, nil).Once()
+
+				l.On("Summarize", mock.Anything, mock.Anything).
+					Return("Summary", []string{"Point"}, nil).Once()
+
+				s.On("SaveSummary", mock.Anything, validDocID, mock.Anything).Return(nil).Once()
+
+				// EmbedBatch fails
+				e.On("EmbedBatch", []string{"Test"}).
+					Return(nil, errors.New("embedding API error")).Once()
+			},
+			wantErr: true,
+		},
+		{
 			name: "store SaveEmbeddings failure propagates error",
 			payload: analyzeTaskPayload{
 				DocumentID: validDocID.String(),
@@ -160,7 +182,8 @@ func TestHandleAnalyze(t *testing.T) {
 
 				s.On("SaveSummary", mock.Anything, validDocID, mock.Anything).Return(nil).Once()
 
-				e.On("Embed", "Test").Return(embeddings.Vector{0.1}, nil).Once()
+				e.On("EmbedBatch", []string{"Test"}).
+					Return([]embeddings.Vector{{0.1}}, nil).Once()
 
 				// SaveEmbeddings fails
 				s.On("SaveEmbeddings", mock.Anything, mock.Anything).
@@ -182,6 +205,9 @@ func TestHandleAnalyze(t *testing.T) {
 				l.On("Summarize", mock.Anything, "").Return("No content", []string{}, nil).Once()
 
 				s.On("SaveSummary", mock.Anything, validDocID, mock.Anything).Return(nil).Once()
+
+				// EmbedBatch called with empty texts array
+				e.On("EmbedBatch", []string{}).Return([]embeddings.Vector{}, nil).Once()
 
 				// SaveEmbeddings called with empty slice
 				s.On("SaveEmbeddings", mock.Anything, []store.Embedding{}).Return(nil).Once()
