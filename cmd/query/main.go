@@ -12,6 +12,7 @@ import (
 
 	"doc-agents/internal/app"
 	"doc-agents/internal/httputil"
+	"doc-agents/internal/store"
 )
 
 type queryRequest struct {
@@ -62,17 +63,10 @@ func queryHandler(deps app.Deps) http.HandlerFunc {
 			req.TopK = 5
 		}
 
-		// Parse document IDs
-		var ids []uuid.UUID
-		for _, s := range req.DocumentIDs {
-			if id, err := uuid.Parse(s); err == nil {
-				ids = append(ids, id)
-			}
-		}
-
 		ctx := r.Context()
 
 		// Embed question and search for relevant chunks
+		ids := parseDocumentIDs(req.DocumentIDs)
 		vec := deps.Embedder.Embed(req.Question)
 		results, err := deps.Store.TopK(ctx, ids, vec, req.TopK)
 		if err != nil {
@@ -80,36 +74,54 @@ func queryHandler(deps app.Deps) http.HandlerFunc {
 			return
 		}
 
-		// Build context from chunks
-		var contextBuilder strings.Builder
-		for _, res := range results {
-			contextBuilder.WriteString(res.Chunk.Text)
-			contextBuilder.WriteString("\n")
-		}
-
-		// Get LLM answer
-		answer, confidence, err := deps.LLM.Answer(ctx, req.Question, contextBuilder.String())
+		// Get LLM answer with context from search results
+		context := buildContext(results)
+		answer, confidence, err := deps.LLM.Answer(ctx, req.Question, context)
 		if err != nil {
 			httputil.Fail(deps.Log, w, "llm failed", err, http.StatusInternalServerError)
 			return
 		}
 
-		// Build response with sources
-		sources := make([]source, len(results))
-		for i, res := range results {
-			sources[i] = source{
-				ChunkID: res.Chunk.ID.String(),
-				Score:   res.Score,
-				Preview: truncate(res.Chunk.Text, 150), // 150 char preview
-			}
-		}
-
 		httputil.WriteJSON(w, http.StatusOK, map[string]any{
 			"answer":     answer,
-			"sources":    sources,
+			"sources":    buildSources(results),
 			"confidence": confidence,
 		})
 	}
+}
+
+// parseDocumentIDs converts string UUIDs to uuid.UUID slice, skipping invalid ones.
+func parseDocumentIDs(ids []string) []uuid.UUID {
+	var result []uuid.UUID
+	for _, s := range ids {
+		if id, err := uuid.Parse(s); err == nil {
+			result = append(result, id)
+		}
+	}
+	return result
+}
+
+// buildContext concatenates chunk texts from search results for LLM context.
+func buildContext(results []store.SearchResult) string {
+	var builder strings.Builder
+	for _, res := range results {
+		builder.WriteString(res.Chunk.Text)
+		builder.WriteString("\n")
+	}
+	return builder.String()
+}
+
+// buildSources converts search results into source structs with truncated previews.
+func buildSources(results []store.SearchResult) []source {
+	sources := make([]source, len(results))
+	for i, res := range results {
+		sources[i] = source{
+			ChunkID: res.Chunk.ID.String(),
+			Score:   res.Score,
+			Preview: truncate(res.Chunk.Text, 150),
+		}
+	}
+	return sources
 }
 
 // truncate limits text to maxLen characters, cutting at word boundary.
