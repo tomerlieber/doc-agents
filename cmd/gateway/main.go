@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"mime/multipart"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -50,16 +51,8 @@ func main() {
 }
 
 func uploadHandler(deps app.Deps) http.HandlerFunc {
-	maxFileSize := deps.Config.MaxUploadSize
-
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
-
-		// Validate file size before parsing
-		if r.ContentLength > maxFileSize {
-			httputil.Fail(deps.Log, w, fmt.Sprintf("file too large (max %d bytes)", maxFileSize), nil, http.StatusBadRequest)
-			return
-		}
 
 		file, header, err := r.FormFile("file")
 		if err != nil {
@@ -68,36 +61,10 @@ func uploadHandler(deps app.Deps) http.HandlerFunc {
 		}
 		defer file.Close()
 
-		// Validate file size
-		if header.Size > maxFileSize {
-			httputil.Fail(deps.Log, w, fmt.Sprintf("file too large (max %d bytes)", maxFileSize), nil, http.StatusBadRequest)
-			return
-		}
-
-		// Validate file type
-		contentType := header.Header.Get("Content-Type")
-
-		// If Content-Type is missing, detect from filename
-		if contentType == "" {
-			ext := strings.ToLower(filepath.Ext(header.Filename))
-			switch ext {
-			case ".txt":
-				contentType = "text/plain"
-			case ".pdf":
-				contentType = "application/pdf"
-			default:
-				httputil.Fail(deps.Log, w, "unsupported file type (only PDF and TXT allowed)", nil, http.StatusBadRequest)
-				return
-			}
-		}
-
-		// Validate Content-Type
-		allowedTypes := map[string]bool{
-			"text/plain":      true,
-			"application/pdf": true,
-		}
-		if !allowedTypes[contentType] {
-			httputil.Fail(deps.Log, w, "unsupported file type (only PDF and TXT allowed)", nil, http.StatusBadRequest)
+		// Validate file
+		_, statusCode, err := validateUploadedFile(r, header, deps.Config.MaxUploadSize)
+		if err != nil {
+			httputil.Fail(deps.Log, w, err.Error(), nil, statusCode)
 			return
 		}
 
@@ -136,6 +103,45 @@ func uploadHandler(deps app.Deps) http.HandlerFunc {
 			"status":      doc.Status,
 		})
 	}
+}
+
+// validateUploadedFile validates file size and content type.
+// Returns the validated content type, HTTP status code, and error.
+func validateUploadedFile(r *http.Request, header *multipart.FileHeader, maxSize int64) (contentType string, statusCode int, err error) {
+	// Check ContentLength header
+	if r.ContentLength > maxSize {
+		return "", http.StatusBadRequest, fmt.Errorf("file too large (max %d bytes)", maxSize)
+	}
+
+	// Check actual file size
+	if header.Size > maxSize {
+		return "", http.StatusBadRequest, fmt.Errorf("file too large (max %d bytes)", maxSize)
+	}
+
+	// Get or detect Content-Type
+	contentType = header.Header.Get("Content-Type")
+	if contentType == "" {
+		ext := strings.ToLower(filepath.Ext(header.Filename))
+		switch ext {
+		case ".txt":
+			contentType = "text/plain"
+		case ".pdf":
+			contentType = "application/pdf"
+		default:
+			return "", http.StatusBadRequest, fmt.Errorf("unsupported file type (only PDF and TXT allowed)")
+		}
+	}
+
+	// Validate against allowlist
+	allowedTypes := map[string]bool{
+		"text/plain":      true,
+		"application/pdf": true,
+	}
+	if !allowedTypes[contentType] {
+		return "", http.StatusBadRequest, fmt.Errorf("unsupported file type (only PDF and TXT allowed)")
+	}
+
+	return contentType, 0, nil
 }
 
 // fail is gateway-specific error handler that can mark documents as failed
