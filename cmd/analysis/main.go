@@ -55,6 +55,7 @@ func main() {
 }
 
 func handleAnalyze(ctx context.Context, deps app.Deps, payload analyzeTaskPayload) error {
+	// Parse and fetch chunks
 	docID, err := uuid.Parse(payload.DocumentID)
 	if err != nil {
 		return err
@@ -64,6 +65,7 @@ func handleAnalyze(ctx context.Context, deps app.Deps, payload analyzeTaskPayloa
 		return err
 	}
 
+	// Generate and save summary
 	text := concatenateChunks(chunks)
 	summaryText, keyPoints, err := deps.LLM.Summarize(ctx, text)
 	if err != nil {
@@ -76,17 +78,15 @@ func handleAnalyze(ctx context.Context, deps app.Deps, payload analyzeTaskPayloa
 		return err
 	}
 
-	// Generate embeddings for all chunks in a single batch request
+	// Generate and save embeddings
 	texts := make([]string, len(chunks))
 	for i, c := range chunks {
 		texts[i] = c.Text
 	}
-
 	vectors, err := deps.Embedder.EmbedBatch(texts)
 	if err != nil {
 		return fmt.Errorf("failed to generate embeddings: %w", err)
 	}
-
 	embeddings := make([]store.Embedding, len(chunks))
 	for i, c := range chunks {
 		embeddings[i] = store.Embedding{
@@ -95,13 +95,11 @@ func handleAnalyze(ctx context.Context, deps app.Deps, payload analyzeTaskPayloa
 			Model:   deps.Config.EmbeddingModel,
 		}
 	}
-
-	// Save all embeddings in a single batch operation
 	if err := deps.Store.SaveEmbeddings(ctx, embeddings); err != nil {
 		return err
 	}
 
-	// Mark document ready.
+	// Mark document ready
 	return deps.Store.UpdateDocumentStatus(ctx, docID, store.StatusReady)
 }
 
