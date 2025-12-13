@@ -54,6 +54,7 @@ func uploadHandler(deps app.Deps) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
 
+		// Receive and validate file
 		file, header, err := r.FormFile("file")
 		if err != nil {
 			httputil.Fail(deps.Log, w, "file is required", err, http.StatusBadRequest)
@@ -61,13 +62,13 @@ func uploadHandler(deps app.Deps) http.HandlerFunc {
 		}
 		defer file.Close()
 
-		// Validate file
 		_, statusCode, err := validateUploadedFile(r, header, deps.Config.MaxUploadSize)
 		if err != nil {
 			httputil.Fail(deps.Log, w, err.Error(), nil, statusCode)
 			return
 		}
 
+		// Process file and create document
 		content, err := io.ReadAll(file)
 		if err != nil {
 			httputil.Fail(deps.Log, w, "failed to read file", err, http.StatusInternalServerError)
@@ -81,12 +82,12 @@ func uploadHandler(deps app.Deps) http.HandlerFunc {
 			return
 		}
 
+		// Enqueue parse task for background processing
 		payload := parseTaskPayload{
 			DocumentID: doc.ID,
 			Filename:   header.Filename,
 			Content:    text,
 		}
-
 		body, err := json.Marshal(payload)
 		if err != nil {
 			fail(deps, ctx, w, "marshal payload failed", err, doc.ID, http.StatusInternalServerError, true)
