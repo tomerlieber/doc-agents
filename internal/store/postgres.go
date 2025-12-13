@@ -189,15 +189,31 @@ func (s *PostgresStore) SaveSummary(ctx context.Context, docID uuid.UUID, summar
 	return err
 }
 
-func (s *PostgresStore) SaveEmbedding(ctx context.Context, emb Embedding) error {
-	// Convert []float32 to pgvector array format: "[0.1,0.2,0.3,...]"
-	vecStr := vectorToString(emb.Vector)
+// SaveEmbeddings saves multiple embeddings in a single batch operation.
+func (s *PostgresStore) SaveEmbeddings(ctx context.Context, embs []Embedding) error {
+	if len(embs) == 0 {
+		return nil
+	}
 
-	_, err := s.db.ExecContext(ctx, `
-		INSERT INTO embeddings(chunk_id, vector, model)
-		VALUES($1,$2::vector,$3)
-		ON CONFLICT (chunk_id) DO UPDATE SET vector=excluded.vector, model=excluded.model`,
-		emb.ChunkID, vecStr, emb.Model)
+	// Build bulk insert query
+	query := `INSERT INTO embeddings (chunk_id, vector, model) VALUES `
+	values := make([]interface{}, 0, len(embs)*3)
+
+	for i, emb := range embs {
+		if i > 0 {
+			query += ", "
+		}
+		// $1, $2, $3 for first embedding, $4, $5, $6 for second, etc.
+		paramOffset := i * 3
+		query += fmt.Sprintf("($%d, $%d::vector, $%d)", paramOffset+1, paramOffset+2, paramOffset+3)
+
+		vecStr := vectorToString(emb.Vector)
+		values = append(values, emb.ChunkID, vecStr, emb.Model)
+	}
+
+	query += ` ON CONFLICT (chunk_id) DO UPDATE SET vector = EXCLUDED.vector, model = EXCLUDED.model`
+
+	_, err := s.db.ExecContext(ctx, query, values...)
 	return err
 }
 

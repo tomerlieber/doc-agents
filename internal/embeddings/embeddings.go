@@ -5,5 +5,5 @@ type Vector []float32
 
 // Embedder defines the embedding interface.
 type Embedder interface {
-	Embed(text string) Vector
+	Embed(text string) (Vector, error)
 }

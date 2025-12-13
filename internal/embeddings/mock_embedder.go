@@ -7,7 +7,10 @@ type MockEmbedder struct {
 	mock.Mock
 }
 
-func (m *MockEmbedder) Embed(text string) Vector {
+func (m *MockEmbedder) Embed(text string) (Vector, error) {
 	args := m.Called(text)
-	return args.Get(0).(Vector)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(Vector), args.Error(1)
 }

@@ -67,7 +67,11 @@ func queryHandler(deps app.Deps) http.HandlerFunc {
 
 		// Embed question and search for relevant chunks
 		ids := parseDocumentIDs(req.DocumentIDs)
-		vec := deps.Embedder.Embed(req.Question)
+		vec, err := deps.Embedder.Embed(req.Question)
+		if err != nil {
+			httputil.Fail(deps.Log, w, "failed to embed question", err, http.StatusInternalServerError)
+			return
+		}
 		results, err := deps.Store.TopK(ctx, ids, vec, req.TopK)
 		if err != nil {
 			httputil.Fail(deps.Log, w, "search failed", err, http.StatusInternalServerError)

@@ -51,8 +51,8 @@ func TestQueryHandler(t *testing.T) {
 				"top_k": 3
 			}`,
 			setup: func(s *store.MockStore, l *llm.MockClient, e *embeddings.MockEmbedder) {
-				// Expect Embed to be called for the question
-				e.On("Embed", "What is Go?").Return(embeddings.Vector{0.1, 0.2}).Once()
+			// Expect Embed to be called for the question
+			e.On("Embed", "What is Go?").Return(embeddings.Vector{0.1, 0.2}, nil).Once()
 
 				// Expect TopK search
 				s.On("TopK", mock.Anything, mock.MatchedBy(func(ids []uuid.UUID) bool {
@@ -92,8 +92,8 @@ func TestQueryHandler(t *testing.T) {
 				"question": "What is Go?",
 				"document_ids": ["` + validDocID.String() + `"]
 			}`,
-			setup: func(s *store.MockStore, l *llm.MockClient, e *embeddings.MockEmbedder) {
-				e.On("Embed", "What is Go?").Return(embeddings.Vector{0.1}).Once()
+		setup: func(s *store.MockStore, l *llm.MockClient, e *embeddings.MockEmbedder) {
+			e.On("Embed", "What is Go?").Return(embeddings.Vector{0.1}, nil).Once()
 
 				// Expect TopK=5 (default)
 				s.On("TopK", mock.Anything, mock.Anything, mock.Anything, 5).
@@ -169,8 +169,8 @@ func TestQueryHandler(t *testing.T) {
 				"question": "What is Go?",
 				"document_ids": ["` + validDocID.String() + `"]
 			}`,
-			setup: func(s *store.MockStore, l *llm.MockClient, e *embeddings.MockEmbedder) {
-				e.On("Embed", "What is Go?").Return(embeddings.Vector{0.1}).Once()
+		setup: func(s *store.MockStore, l *llm.MockClient, e *embeddings.MockEmbedder) {
+			e.On("Embed", "What is Go?").Return(embeddings.Vector{0.1}, nil).Once()
 				s.On("TopK", mock.Anything, mock.Anything, mock.Anything, 5).
 					Return(nil, errors.New("database error")).Once()
 			},
@@ -183,8 +183,8 @@ func TestQueryHandler(t *testing.T) {
 				"question": "What is Go?",
 				"document_ids": ["` + validDocID.String() + `"]
 			}`,
-			setup: func(s *store.MockStore, l *llm.MockClient, e *embeddings.MockEmbedder) {
-				e.On("Embed", "What is Go?").Return(embeddings.Vector{0.1}).Once()
+		setup: func(s *store.MockStore, l *llm.MockClient, e *embeddings.MockEmbedder) {
+			e.On("Embed", "What is Go?").Return(embeddings.Vector{0.1}, nil).Once()
 				s.On("TopK", mock.Anything, mock.Anything, mock.Anything, 5).
 					Return([]store.SearchResult{}, nil).Once()
 				l.On("Answer", mock.Anything, mock.Anything, mock.Anything).
@@ -199,8 +199,8 @@ func TestQueryHandler(t *testing.T) {
 				"question": "What is Go?",
 				"document_ids": ["` + uuid.New().String() + `"]
 			}`,
-			setup: func(s *store.MockStore, l *llm.MockClient, e *embeddings.MockEmbedder) {
-				e.On("Embed", "What is Go?").Return(embeddings.Vector{0.1}).Once()
+		setup: func(s *store.MockStore, l *llm.MockClient, e *embeddings.MockEmbedder) {
+			e.On("Embed", "What is Go?").Return(embeddings.Vector{0.1}, nil).Once()
 				s.On("TopK", mock.Anything, mock.Anything, mock.Anything, 5).
 					Return([]store.SearchResult{}, nil).Once()
 				l.On("Answer", mock.Anything, "What is Go?", "").

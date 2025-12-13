@@ -60,7 +60,7 @@ type Store interface {
 	SaveChunks(ctx context.Context, docID uuid.UUID, chunks []Chunk) ([]Chunk, error)
 	ListChunks(ctx context.Context, docID uuid.UUID) ([]Chunk, error)
 	SaveSummary(ctx context.Context, docID uuid.UUID, summary Summary) error
-	SaveEmbedding(ctx context.Context, emb Embedding) error
+	SaveEmbeddings(ctx context.Context, embs []Embedding) error
 	GetSummary(ctx context.Context, docID uuid.UUID) (Summary, error)
 	TopK(ctx context.Context, docIDs []uuid.UUID, vector embeddings.Vector, k int) ([]SearchResult, error)
 }

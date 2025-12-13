@@ -63,11 +63,11 @@ func TestHandleAnalyze(t *testing.T) {
 				})).Return(nil).Once()
 
 				// Expect embedder to be called for the chunk
-				e.On("Embed", "Test chunk").Return(embeddings.Vector{0.1, 0.2, 0.3}).Once()
+				e.On("Embed", "Test chunk").Return(embeddings.Vector{0.1, 0.2, 0.3}, nil).Once()
 
-				// Expect SaveEmbedding to be called
-				s.On("SaveEmbedding", mock.Anything, mock.MatchedBy(func(emb store.Embedding) bool {
-					return emb.ChunkID == chunk1ID
+				// Expect SaveEmbeddings (batch) to be called with 1 embedding
+				s.On("SaveEmbeddings", mock.Anything, mock.MatchedBy(func(embs []store.Embedding) bool {
+					return len(embs) == 1 && embs[0].ChunkID == chunk1ID
 				})).Return(nil).Once()
 
 				// Expect status update to ready
@@ -96,11 +96,13 @@ func TestHandleAnalyze(t *testing.T) {
 				s.On("SaveSummary", mock.Anything, validDocID, mock.Anything).Return(nil).Once()
 
 				// Expect embedder called for each chunk
-				e.On("Embed", "First chunk").Return(embeddings.Vector{0.1}).Once()
-				e.On("Embed", "Second chunk").Return(embeddings.Vector{0.2}).Once()
+				e.On("Embed", "First chunk").Return(embeddings.Vector{0.1}, nil).Once()
+				e.On("Embed", "Second chunk").Return(embeddings.Vector{0.2}, nil).Once()
 
-				// Expect SaveEmbedding called twice
-				s.On("SaveEmbedding", mock.Anything, mock.Anything).Return(nil).Twice()
+				// Expect SaveEmbeddings (batch) called with 2 embeddings
+				s.On("SaveEmbeddings", mock.Anything, mock.MatchedBy(func(embs []store.Embedding) bool {
+					return len(embs) == 2
+				})).Return(nil).Once()
 
 				s.On("UpdateDocumentStatus", mock.Anything, validDocID, store.StatusReady).
 					Return(nil).Once()
@@ -144,7 +146,7 @@ func TestHandleAnalyze(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name: "store SaveEmbedding failure propagates error",
+			name: "store SaveEmbeddings failure propagates error",
 			payload: analyzeTaskPayload{
 				DocumentID: validDocID.String(),
 				ChunkIDs:   []uuid.UUID{chunk1ID},
@@ -158,10 +160,10 @@ func TestHandleAnalyze(t *testing.T) {
 
 				s.On("SaveSummary", mock.Anything, validDocID, mock.Anything).Return(nil).Once()
 
-				e.On("Embed", "Test").Return(embeddings.Vector{0.1}).Once()
+				e.On("Embed", "Test").Return(embeddings.Vector{0.1}, nil).Once()
 
-				// SaveEmbedding fails
-				s.On("SaveEmbedding", mock.Anything, mock.Anything).
+				// SaveEmbeddings fails
+				s.On("SaveEmbeddings", mock.Anything, mock.Anything).
 					Return(errors.New("embedding save error")).Once()
 			},
 			wantErr: true,
@@ -181,7 +183,8 @@ func TestHandleAnalyze(t *testing.T) {
 
 				s.On("SaveSummary", mock.Anything, validDocID, mock.Anything).Return(nil).Once()
 
-				// No embeddings to save
+				// SaveEmbeddings called with empty slice
+				s.On("SaveEmbeddings", mock.Anything, []store.Embedding{}).Return(nil).Once()
 
 				s.On("UpdateDocumentStatus", mock.Anything, validDocID, store.StatusReady).
 					Return(nil).Once()

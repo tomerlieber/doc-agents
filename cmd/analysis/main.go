@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"os"
 	"strings"
@@ -74,15 +75,26 @@ func handleAnalyze(ctx context.Context, deps app.Deps, payload analyzeTaskPayloa
 	}); err != nil {
 		return err
 	}
-	for _, c := range chunks {
-		if err := deps.Store.SaveEmbedding(ctx, store.Embedding{
+
+	// Generate embeddings for all chunks
+	embeddings := make([]store.Embedding, len(chunks))
+	for i, c := range chunks {
+		vec, err := deps.Embedder.Embed(c.Text)
+		if err != nil {
+			return fmt.Errorf("failed to generate embedding for chunk %s: %w", c.ID, err)
+		}
+		embeddings[i] = store.Embedding{
 			ChunkID: c.ID,
-			Vector:  deps.Embedder.Embed(c.Text),
+			Vector:  vec,
 			Model:   deps.Config.EmbeddingModel,
-		}); err != nil {
-			return err
 		}
 	}
+
+	// Save all embeddings in a single batch operation
+	if err := deps.Store.SaveEmbeddings(ctx, embeddings); err != nil {
+		return err
+	}
+
 	// Mark document ready.
 	return deps.Store.UpdateDocumentStatus(ctx, docID, store.StatusReady)
 }

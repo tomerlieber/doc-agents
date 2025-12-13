@@ -45,8 +45,8 @@ func (m *MockStore) SaveSummary(ctx context.Context, docID uuid.UUID, summary Su
 	return args.Error(0)
 }
 
-func (m *MockStore) SaveEmbedding(ctx context.Context, emb Embedding) error {
-	args := m.Called(ctx, emb)
+func (m *MockStore) SaveEmbeddings(ctx context.Context, embs []Embedding) error {
+	args := m.Called(ctx, embs)
 	return args.Error(0)
 }
 

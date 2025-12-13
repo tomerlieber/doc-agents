@@ -32,9 +32,9 @@ func NewOpenAIEmbedder(apiKey string, model openai.EmbeddingModel) (*OpenAIEmbed
 	}, nil
 }
 
-func (e *OpenAIEmbedder) Embed(text string) Vector {
+func (e *OpenAIEmbedder) Embed(text string) (Vector, error) {
 	if e == nil || e.client == nil {
-		return nil
+		return nil, fmt.Errorf("embedder not initialized")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), defaultEmbeddingTimeout)
 	defer cancel()
@@ -46,10 +46,10 @@ func (e *OpenAIEmbedder) Embed(text string) Vector {
 		Model: e.model,
 	})
 	if err != nil {
-		return nil
+		return nil, fmt.Errorf("openai embedding failed: %w", err)
 	}
 	if len(resp.Data) == 0 {
-		return nil
+		return nil, fmt.Errorf("no embedding data returned")
 	}
 	// Convert []float64 to []float32
 	embedding := resp.Data[0].Embedding
@@ -57,6 +57,5 @@ func (e *OpenAIEmbedder) Embed(text string) Vector {
 	for i, v := range embedding {
 		vec[i] = float32(v)
 	}
-	return vec
+	return vec, nil
 }
-
