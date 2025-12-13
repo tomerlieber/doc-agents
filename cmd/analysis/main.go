@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"os"
+	"strings"
 
 	"github.com/google/uuid"
 	"golang.org/x/sync/errgroup"
@@ -61,10 +62,8 @@ func handleAnalyze(ctx context.Context, deps app.Deps, payload analyzeTaskPayloa
 	if err != nil {
 		return err
 	}
-	text := ""
-	for _, c := range chunks {
-		text += c.Text + "\n"
-	}
+
+	text := concatenateChunks(chunks)
 	summaryText, keyPoints, err := deps.LLM.Summarize(ctx, text)
 	if err != nil {
 		return err
@@ -86,4 +85,14 @@ func handleAnalyze(ctx context.Context, deps app.Deps, payload analyzeTaskPayloa
 	}
 	// Mark document ready.
 	return deps.Store.UpdateDocumentStatus(ctx, docID, store.StatusReady)
+}
+
+// concatenateChunks combines all chunk texts into a single string for summarization.
+func concatenateChunks(chunks []store.Chunk) string {
+	var builder strings.Builder
+	for _, c := range chunks {
+		builder.WriteString(c.Text)
+		builder.WriteString("\n")
+	}
+	return builder.String()
 }
