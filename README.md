@@ -10,7 +10,6 @@ A Go-based multi-agent system that processes documents through specialized agent
 - [Quick Start](#quick-start)
 - [API Documentation](#api-documentation)
 - [Design Decisions & Rationale](#design-decisions--rationale)
-- [Project Structure](#project-structure)
 - [Testing](#testing)
 - [Known Limitations](#known-limitations)
 
@@ -473,67 +472,6 @@ backoff = baseDelay * 2^attempt + random(0, jitter)
 | Synchronous LLM calls | Simpler code | Can't cancel/stream | Implement streaming as bonus |
 | Single database instance | Simple setup | Single point of failure | Use read replicas and connection pooling for production |
 
-## Project Structure
-
-```
-doc-agents/
-├── cmd/                        # Service entry points
-│   ├── gateway/               # API Gateway (port 8080)
-│   │   └── main.go           # Upload, summary, query endpoints
-│   ├── parser/               # Parser Agent (port 8082, 2 replicas)
-│   │   └── main.go           # Text extraction & chunking
-│   ├── analysis/             # Analysis Agent (port 8083, 2 replicas)
-│   │   └── main.go           # Embeddings & summarization
-│   └── query/                # Query Agent (port 8081)
-│       └── main.go           # Semantic search & QA
-│
-├── internal/                  # Shared internal packages
-│   ├── app/                  # Dependency injection
-│   │   └── deps.go           # Wire up config, logger, store, queue, LLM
-│   ├── chunker/              # Document chunking
-│   │   ├── chunker.go        # Sliding window algorithm
-│   │   └── chunker_test.go   # 90% coverage
-│   ├── config/               # Configuration
-│   │   ├── config.go         # Environment variable parsing
-│   │   └── config_test.go    # 75% coverage
-│   ├── embeddings/           # Embedding generation
-│   │   ├── embeddings.go     # Interface definition
-│   │   ├── openai.go         # OpenAI implementation
-│   │   └── embeddings_test.go # 38% coverage
-│   ├── httputil/             # HTTP utilities
-│   │   └── httputil.go       # JSON responses, error handling
-│   ├── llm/                  # LLM client
-│   │   ├── llm.go            # Interface (Summarize, Answer)
-│   │   └── openai.go         # OpenAI Chat Completions
-│   ├── logger/               # Structured logging
-│   │   ├── logger.go         # slog wrapper
-│   │   └── logger_test.go    # 100% coverage
-│   ├── queue/                # Message queue
-│   │   ├── queue.go          # Interface, priority queue, memory impl
-│   │   └── nats.go           # NATS JetStream implementation
-│   ├── retry/                # Retry logic
-│   │   ├── backoff.go        # Exponential backoff with jitter
-│   │   └── backoff_test.go   # 100% coverage
-│   └── store/                # Data persistence
-│       ├── store.go          # Interface, domain models, memory impl
-│       └── postgres.go       # PostgreSQL with pgvector
-│
-├── docker-compose.yml         # Full stack orchestration
-├── Dockerfile                # Multi-stage build (Go + distroless)
-├── env.example               # Environment variables template
-├── go.mod                    # Go dependencies
-├── go.sum                    # Dependency checksums
-└── README.md                 # This file
-```
-
-### Key Design Patterns
-
-- **Interface-Based Design**: `LLM`, `Embedder`, `Store`, `Queue` interfaces for easy testing and swapping implementations
-- **Dependency Injection**: `app.Deps` wires up all dependencies in one place
-- **Single Responsibility**: Each agent handles one concern (parsing, analysis, or querying)
-- **Repository Pattern**: `Store` abstracts database operations
-- **Clean Architecture**: Business logic in `internal/`, services in `cmd/`
-
 ## Testing
 
 ```bash
@@ -629,13 +567,6 @@ go test ./internal/chunker -v
 
 ⚠️ **Not Production Ready** - Missing critical security features:
 
-**Implemented:**
-- ✅ Input validation and sanitization (go-playground/validator on all endpoints)
-- ✅ File upload size limits (configurable MAX_UPLOAD_SIZE, default 10MB)
-- ✅ Content-type validation (PDF and TXT only, with extension fallback detection)
-- ✅ SQL injection protection (parameterized queries throughout)
-
-**Still Missing:**
 - [ ] API authentication and authorization (no API keys or JWT)
 - [ ] Rate limiting per user/IP (vulnerable to abuse)
 - [ ] Secrets management (API keys in env vars, should use Vault/K8s secrets)
@@ -651,10 +582,10 @@ go test ./internal/chunker -v
 - **Language**: Go 1.23
 - **Web Framework**: Chi Router (lightweight, idiomatic)
 - **Database**: PostgreSQL with pgvector extension
-- **Message Queue**: NATS JetStream
+- **Message Queue**: NATS (Core NATS, in-memory)
 - **LLM Provider**: OpenAI (GPT-4o-mini, text-embedding-3-small)
 - **Containerization**: Docker with multi-stage builds
-- **Testing**: Go's built-in testing framework
+- **Testing**: Go's built-in testing framework + testify/mock
 
 ### AI Assistance Used
 
