@@ -611,6 +611,13 @@ go test ./internal/chunker -v
    - OpenAI rate limits will cause failures
    - **Solution**: Add circuit breaker pattern and rate limit queue
 
+9. **No Queue Persistence**: NATS is using Core NATS (in-memory only):
+   - Tasks are lost if NATS container restarts
+   - Tasks are lost if consumer crashes before processing
+   - No message acknowledgment or redelivery guarantees
+   - **Current Impact**: Documents can get stuck in "processing" status after failures
+   - **Solution**: Migrate to JetStream with persistent streams and durable consumers (see `internal/queue/nats.go` for implementation notes)
+
 ### Intentional Simplifications (for time constraints)
 
 - **No conversation memory**: Each query is stateless (could add session storage)
