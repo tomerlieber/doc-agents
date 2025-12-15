@@ -173,7 +173,6 @@ func summaryHandler(deps app.Deps) http.HandlerFunc {
 		httputil.WriteJSON(w, http.StatusOK, map[string]any{
 			"summary":    sum.Summary,
 			"key_points": sum.KeyPoints,
-			"documentId": docID,
 		})
 	}
 }
