@@ -61,7 +61,7 @@ func (c *OpenAIClient) Summarize(ctx context.Context, text string) (string, []st
 	return extractSummary(resp.Choices[0].Message.Content)
 }
 
-func (c *OpenAIClient) Answer(ctx context.Context, question, contextText string) (string, float32, error) {
+func (c *OpenAIClient) Answer(ctx context.Context, question, contextText string, contextQuality float32) (string, float32, error) {
 	if c == nil || c.client == nil {
 		return "", 0, fmt.Errorf("nil openai client")
 	}
@@ -85,6 +85,8 @@ func (c *OpenAIClient) Answer(ctx context.Context, question, contextText string)
 		Model:       c.model,
 		Messages:    messages,
 		Temperature: openai.Float(defaultChatTemperature),
+		Logprobs:    openai.Bool(true), // Enable token probabilities
+		TopLogprobs: openai.Int(1),     // Get top token probability
 	})
 	if err != nil {
 		return "", 0, err
@@ -92,9 +94,14 @@ func (c *OpenAIClient) Answer(ctx context.Context, question, contextText string)
 	if len(resp.Choices) == 0 || resp.Choices[0].Message.Content == "" {
 		return "", 0, fmt.Errorf("openai: no choices returned")
 	}
+
 	answer := resp.Choices[0].Message.Content
-	conf := deriveConfidence(answer)
-	return answer, conf, nil
+
+	// Combine retrieval quality with LLM generation confidence
+	llmConfidence := calculateLLMConfidence(&resp.Choices[0].Logprobs)
+	combinedConfidence := contextQuality * llmConfidence
+
+	return answer, combinedConfidence, nil
 }
 
 func buildMessages(system, user string) []openai.ChatCompletionMessageParamUnion {
@@ -136,12 +143,22 @@ func extractSummary(content string) (string, []string, error) {
 	return summary, points, nil
 }
 
-// deriveConfidence returns a simple heuristic confidence based on answer length.
-// This is not a model-provided probability; it just scales with content size.
-func deriveConfidence(answer string) float32 {
-	if answer == "" {
-		return 0
+// calculateLLMConfidence computes confidence from token log probabilities.
+// Returns average probability across all tokens (converting logprob -> probability).
+// Higher values indicate the model was more certain about its token choices.
+func calculateLLMConfidence(logprobs *openai.ChatCompletionChoiceLogprobs) float32 {
+	if logprobs == nil || len(logprobs.Content) == 0 {
+		// If logprobs unavailable, default to high confidence (don't penalize)
+		return 1.0
 	}
-	score := 0.5 + 0.5*math.Tanh(float64(len(answer))/200.0)
-	return float32(score)
+
+	var sumProb float64
+	for _, tokenLogprob := range logprobs.Content {
+		// Convert log probability to probability: p = e^(logprob)
+		prob := math.Exp(tokenLogprob.Logprob)
+		sumProb += prob
+	}
+
+	avgProb := sumProb / float64(len(logprobs.Content))
+	return float32(avgProb)
 }

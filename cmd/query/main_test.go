@@ -51,8 +51,8 @@ func TestQueryHandler(t *testing.T) {
 				"top_k": 3
 			}`,
 			setup: func(s *store.MockStore, l *llm.MockClient, e *embeddings.MockEmbedder) {
-			// Expect Embed to be called for the question
-			e.On("Embed", "What is Go?").Return(embeddings.Vector{0.1, 0.2}, nil).Once()
+				// Expect Embed to be called for the question
+				e.On("Embed", "What is Go?").Return(embeddings.Vector{0.1, 0.2}, nil).Once()
 
 				// Expect TopK search
 				s.On("TopK", mock.Anything, mock.MatchedBy(func(ids []uuid.UUID) bool {
@@ -64,8 +64,8 @@ func TestQueryHandler(t *testing.T) {
 					},
 				}, nil).Once()
 
-				// Expect LLM.Answer to be called
-				l.On("Answer", mock.Anything, "What is Go?", mock.Anything).
+				// Expect LLM.Answer to be called with contextQuality 0.95
+				l.On("Answer", mock.Anything, "What is Go?", mock.Anything, float32(0.95)).
 					Return("Go is a programming language developed by Google", float64(0.95), nil).Once()
 			},
 			wantStatusCode: http.StatusOK,
@@ -92,14 +92,15 @@ func TestQueryHandler(t *testing.T) {
 				"question": "What is Go?",
 				"document_ids": ["` + validDocID.String() + `"]
 			}`,
-		setup: func(s *store.MockStore, l *llm.MockClient, e *embeddings.MockEmbedder) {
-			e.On("Embed", "What is Go?").Return(embeddings.Vector{0.1}, nil).Once()
+			setup: func(s *store.MockStore, l *llm.MockClient, e *embeddings.MockEmbedder) {
+				e.On("Embed", "What is Go?").Return(embeddings.Vector{0.1}, nil).Once()
 
 				// Expect TopK=5 (default)
 				s.On("TopK", mock.Anything, mock.Anything, mock.Anything, 5).
 					Return([]store.SearchResult{}, nil).Once()
 
-				l.On("Answer", mock.Anything, mock.Anything, mock.Anything).
+				// contextQuality will be 0.0 for empty results
+				l.On("Answer", mock.Anything, mock.Anything, mock.Anything, float32(0.0)).
 					Return("Answer", float64(0.8), nil).Once()
 			},
 			wantStatusCode: http.StatusOK,
@@ -169,8 +170,8 @@ func TestQueryHandler(t *testing.T) {
 				"question": "What is Go?",
 				"document_ids": ["` + validDocID.String() + `"]
 			}`,
-		setup: func(s *store.MockStore, l *llm.MockClient, e *embeddings.MockEmbedder) {
-			e.On("Embed", "What is Go?").Return(embeddings.Vector{0.1}, nil).Once()
+			setup: func(s *store.MockStore, l *llm.MockClient, e *embeddings.MockEmbedder) {
+				e.On("Embed", "What is Go?").Return(embeddings.Vector{0.1}, nil).Once()
 				s.On("TopK", mock.Anything, mock.Anything, mock.Anything, 5).
 					Return(nil, errors.New("database error")).Once()
 			},
@@ -183,11 +184,11 @@ func TestQueryHandler(t *testing.T) {
 				"question": "What is Go?",
 				"document_ids": ["` + validDocID.String() + `"]
 			}`,
-		setup: func(s *store.MockStore, l *llm.MockClient, e *embeddings.MockEmbedder) {
-			e.On("Embed", "What is Go?").Return(embeddings.Vector{0.1}, nil).Once()
+			setup: func(s *store.MockStore, l *llm.MockClient, e *embeddings.MockEmbedder) {
+				e.On("Embed", "What is Go?").Return(embeddings.Vector{0.1}, nil).Once()
 				s.On("TopK", mock.Anything, mock.Anything, mock.Anything, 5).
 					Return([]store.SearchResult{}, nil).Once()
-				l.On("Answer", mock.Anything, mock.Anything, mock.Anything).
+				l.On("Answer", mock.Anything, mock.Anything, mock.Anything, float32(0.0)).
 					Return("", float64(0), errors.New("LLM error")).Once()
 			},
 			wantStatusCode: http.StatusInternalServerError,
@@ -199,11 +200,11 @@ func TestQueryHandler(t *testing.T) {
 				"question": "What is Go?",
 				"document_ids": ["` + uuid.New().String() + `"]
 			}`,
-		setup: func(s *store.MockStore, l *llm.MockClient, e *embeddings.MockEmbedder) {
-			e.On("Embed", "What is Go?").Return(embeddings.Vector{0.1}, nil).Once()
+			setup: func(s *store.MockStore, l *llm.MockClient, e *embeddings.MockEmbedder) {
+				e.On("Embed", "What is Go?").Return(embeddings.Vector{0.1}, nil).Once()
 				s.On("TopK", mock.Anything, mock.Anything, mock.Anything, 5).
 					Return([]store.SearchResult{}, nil).Once()
-				l.On("Answer", mock.Anything, "What is Go?", "").
+				l.On("Answer", mock.Anything, "What is Go?", "", float32(0.0)).
 					Return("I don't have enough context", float64(0.3), nil).Once()
 			},
 			wantStatusCode: http.StatusOK,

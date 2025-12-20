@@ -80,7 +80,8 @@ func queryHandler(deps app.Deps) http.HandlerFunc {
 
 		// Get LLM answer with context from search results (filtered by database)
 		context := buildContext(results)
-		answer, confidence, err := deps.LLM.Answer(ctx, req.Question, context)
+		contextQuality := calculateAvgSimilarity(results)
+		answer, confidence, err := deps.LLM.Answer(ctx, req.Question, context, contextQuality)
 		if err != nil {
 			httputil.Fail(deps.Log, w, "llm failed", err, http.StatusInternalServerError)
 			return
@@ -113,6 +114,19 @@ func buildContext(results []store.SearchResult) string {
 		builder.WriteString("\n")
 	}
 	return builder.String()
+}
+
+// calculateAvgSimilarity computes the average similarity score from search results.
+// Returns 0.0 if no results.
+func calculateAvgSimilarity(results []store.SearchResult) float32 {
+	if len(results) == 0 {
+		return 0.0
+	}
+	var sum float32
+	for _, res := range results {
+		sum += res.Score
+	}
+	return sum / float32(len(results))
 }
 
 // buildSources converts search results into source structs with truncated previews.
