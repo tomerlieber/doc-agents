@@ -67,8 +67,18 @@ func (c *OpenAIClient) Answer(ctx context.Context, question, contextText string)
 	}
 	reqCtx, cancel := context.WithTimeout(ctx, defaultChatTimeout)
 	defer cancel()
+
+	systemPrompt := `You are a precise document Q&A assistant. Follow these rules strictly:
+
+1. Answer ONLY using information from the provided context
+2. If the answer is not in the context, respond with "I don't have enough information to answer this question"
+3. Cite specific parts of the context when answering (e.g., "According to the documentation...")
+4. Be concise but complete - include all relevant details from the context
+5. If the context contains conflicting information, mention both perspectives
+6. Never make assumptions or add information not present in the context`
+
 	messages := buildMessages(
-		"You answer questions concisely based only on the provided context.",
+		systemPrompt,
 		fmt.Sprintf("Context:\n%s\n\nQuestion: %s", contextText, question),
 	)
 	resp, err := c.client.Chat.Completions.New(reqCtx, openai.ChatCompletionNewParams{
