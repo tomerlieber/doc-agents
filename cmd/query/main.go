@@ -78,7 +78,7 @@ func queryHandler(deps app.Deps) http.HandlerFunc {
 			return
 		}
 
-		// Get LLM answer with context from search results
+		// Get LLM answer with context from search results (filtered by database)
 		context := buildContext(results)
 		answer, confidence, err := deps.LLM.Answer(ctx, req.Question, context)
 		if err != nil {

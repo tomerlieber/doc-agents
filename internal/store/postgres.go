@@ -219,6 +219,9 @@ func (s *PostgresStore) TopK(ctx context.Context, docIDs []uuid.UUID, vector emb
 	// Convert query vector to pgvector format
 	queryVec := vectorToString(vector)
 
+	// Minimum similarity threshold for relevant results (0.7 = 70% similarity)
+	const minSimilarity = 0.7
+
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT 
 			c.id, 
@@ -234,9 +237,10 @@ func (s *PostgresStore) TopK(ctx context.Context, docIDs []uuid.UUID, vector emb
 		JOIN chunks c ON c.id = e.chunk_id
 		LEFT JOIN summaries s ON s.document_id = c.document_id
 		WHERE c.document_id = ANY($2)
+		  AND (1 - (e.vector <=> $1::vector)) >= $4
 		ORDER BY e.vector <=> $1::vector
 		LIMIT $3
-	`, queryVec, pqUUIDArray(docIDs), k)
+	`, queryVec, pqUUIDArray(docIDs), k, minSimilarity)
 
 	if err != nil {
 		return nil, err
