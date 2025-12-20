@@ -27,7 +27,7 @@ type Config struct {
 	LLMProvider    string `env:"LLM_PROVIDER" envDefault:"openai"` // "openai" (uses OpenAI API) or "stub" (for testing)
 	OpenAIKey      string `env:"OPENAI_API_KEY"`
 	LLMModel       string `env:"LLM_MODEL" envDefault:"gpt-4o-mini"`
-	EmbeddingModel string `env:"EMBEDDING_MODEL" envDefault:"text-embedding-3-small"`
+	EmbeddingModel string `env:"EMBEDDING_MODEL" envDefault:"text-embedding-3-large"`
 }
 
 // Load reads configuration from environment variables with defaults.

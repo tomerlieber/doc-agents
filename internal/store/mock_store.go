@@ -19,6 +19,11 @@ func (m *MockStore) CreateDocument(ctx context.Context, filename string) (Docume
 	return args.Get(0).(Document), args.Error(1)
 }
 
+func (m *MockStore) GetDocument(ctx context.Context, id uuid.UUID) (Document, error) {
+	args := m.Called(ctx, id)
+	return args.Get(0).(Document), args.Error(1)
+}
+
 func (m *MockStore) UpdateDocumentStatus(ctx context.Context, id uuid.UUID, status DocumentStatus) error {
 	args := m.Called(ctx, id, status)
 	return args.Error(0)

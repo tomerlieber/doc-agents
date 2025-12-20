@@ -47,6 +47,10 @@ func TestHandleAnalyze(t *testing.T) {
 				ChunkIDs:   []uuid.UUID{chunk1ID},
 			},
 			setup: func(s *store.MockStore, l *llm.MockClient, e *embeddings.MockEmbedder) {
+				// Expect GetDocument to be called
+				s.On("GetDocument", mock.Anything, validDocID).
+					Return(store.Document{ID: validDocID, Filename: "test.pdf"}, nil).Once()
+
 				// Expect ListChunks to be called
 				s.On("ListChunks", mock.Anything, validDocID).
 					Return([]store.Chunk{
@@ -62,8 +66,8 @@ func TestHandleAnalyze(t *testing.T) {
 					return sum.Summary == "Test summary"
 				})).Return(nil).Once()
 
-				// Expect batch embedder to be called with all chunk texts
-				e.On("EmbedBatch", []string{"Test chunk"}).
+				// Expect batch embedder to be called with enriched chunk texts
+				e.On("EmbedBatch", []string{"Document: test.pdf\n\nTest chunk"}).
 					Return([]embeddings.Vector{{0.1, 0.2, 0.3}}, nil).Once()
 
 				// Expect SaveEmbeddings (batch) to be called with 1 embedding
@@ -84,6 +88,9 @@ func TestHandleAnalyze(t *testing.T) {
 				ChunkIDs:   []uuid.UUID{chunk1ID, chunk2ID},
 			},
 			setup: func(s *store.MockStore, l *llm.MockClient, e *embeddings.MockEmbedder) {
+				s.On("GetDocument", mock.Anything, validDocID).
+					Return(store.Document{ID: validDocID, Filename: "test.pdf"}, nil).Once()
+
 				s.On("ListChunks", mock.Anything, validDocID).
 					Return([]store.Chunk{
 						{ID: chunk1ID, Index: 0, Text: "First chunk", TokenCount: 2},
@@ -96,8 +103,8 @@ func TestHandleAnalyze(t *testing.T) {
 
 				s.On("SaveSummary", mock.Anything, validDocID, mock.Anything).Return(nil).Once()
 
-				// Expect batch embedder called with all chunk texts
-				e.On("EmbedBatch", []string{"First chunk", "Second chunk"}).
+				// Expect batch embedder called with enriched chunk texts
+				e.On("EmbedBatch", []string{"Document: test.pdf\n\nFirst chunk", "Document: test.pdf\n\nSecond chunk"}).
 					Return([]embeddings.Vector{{0.1}, {0.2}}, nil).Once()
 
 				// Expect SaveEmbeddings (batch) called with 2 embeddings
@@ -153,6 +160,9 @@ func TestHandleAnalyze(t *testing.T) {
 				ChunkIDs:   []uuid.UUID{chunk1ID},
 			},
 			setup: func(s *store.MockStore, l *llm.MockClient, e *embeddings.MockEmbedder) {
+				s.On("GetDocument", mock.Anything, validDocID).
+					Return(store.Document{ID: validDocID, Filename: "test.pdf"}, nil).Once()
+
 				s.On("ListChunks", mock.Anything, validDocID).
 					Return([]store.Chunk{{ID: chunk1ID, Text: "Test", TokenCount: 1}}, nil).Once()
 
@@ -162,7 +172,7 @@ func TestHandleAnalyze(t *testing.T) {
 				s.On("SaveSummary", mock.Anything, validDocID, mock.Anything).Return(nil).Once()
 
 				// EmbedBatch fails
-				e.On("EmbedBatch", []string{"Test"}).
+				e.On("EmbedBatch", []string{"Document: test.pdf\n\nTest"}).
 					Return(nil, errors.New("embedding API error")).Once()
 			},
 			wantErr: true,
@@ -174,6 +184,9 @@ func TestHandleAnalyze(t *testing.T) {
 				ChunkIDs:   []uuid.UUID{chunk1ID},
 			},
 			setup: func(s *store.MockStore, l *llm.MockClient, e *embeddings.MockEmbedder) {
+				s.On("GetDocument", mock.Anything, validDocID).
+					Return(store.Document{ID: validDocID, Filename: "test.pdf"}, nil).Once()
+
 				s.On("ListChunks", mock.Anything, validDocID).
 					Return([]store.Chunk{{ID: chunk1ID, Text: "Test", TokenCount: 1}}, nil).Once()
 
@@ -182,7 +195,7 @@ func TestHandleAnalyze(t *testing.T) {
 
 				s.On("SaveSummary", mock.Anything, validDocID, mock.Anything).Return(nil).Once()
 
-				e.On("EmbedBatch", []string{"Test"}).
+				e.On("EmbedBatch", []string{"Document: test.pdf\n\nTest"}).
 					Return([]embeddings.Vector{{0.1}}, nil).Once()
 
 				// SaveEmbeddings fails
@@ -198,6 +211,9 @@ func TestHandleAnalyze(t *testing.T) {
 				ChunkIDs:   []uuid.UUID{chunk1ID},
 			},
 			setup: func(s *store.MockStore, l *llm.MockClient, e *embeddings.MockEmbedder) {
+				s.On("GetDocument", mock.Anything, validDocID).
+					Return(store.Document{ID: validDocID, Filename: "test.pdf"}, nil).Once()
+
 				// Return empty chunks
 				s.On("ListChunks", mock.Anything, validDocID).Return([]store.Chunk{}, nil).Once()
 

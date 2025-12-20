@@ -81,7 +81,7 @@ func (s *PostgresStore) migrate(ctx context.Context) error {
 		);`,
 		`CREATE TABLE IF NOT EXISTS embeddings (
 			chunk_id UUID PRIMARY KEY REFERENCES chunks(id) ON DELETE CASCADE,
-			vector vector(1536),
+			vector vector(3072),
 			model TEXT
 		);`,
 	}
@@ -101,37 +101,6 @@ func (s *PostgresStore) migrate(ctx context.Context) error {
 		return fmt.Errorf("failed to create vector index: %w", err)
 	}
 
-	// Handle migration from JSONB to vector type if needed
-	var columnType string
-	err = s.db.QueryRowContext(ctx, `
-		SELECT data_type 
-		FROM information_schema.columns 
-		WHERE table_name = 'embeddings' AND column_name = 'vector'
-	`).Scan(&columnType)
-
-	if err == nil && columnType == "jsonb" {
-		// Migration needed: convert JSONB to vector type
-		_, err = s.db.ExecContext(ctx, `
-			ALTER TABLE embeddings 
-			ALTER COLUMN vector TYPE vector(1536) 
-			USING (vector::text)::vector
-		`)
-		if err != nil {
-			return fmt.Errorf("failed to migrate vector column from jsonb: %w", err)
-		}
-
-		// Recreate index after type change
-		_, _ = s.db.ExecContext(ctx, `DROP INDEX IF EXISTS embeddings_vector_idx`)
-		_, err = s.db.ExecContext(ctx, `
-			CREATE INDEX embeddings_vector_idx 
-			ON embeddings USING ivfflat (vector vector_cosine_ops) 
-			WITH (lists = 100)
-		`)
-		if err != nil {
-			return fmt.Errorf("failed to create vector index after migration: %w", err)
-		}
-	}
-
 	return nil
 }
 
@@ -143,6 +112,20 @@ func (s *PostgresStore) CreateDocument(ctx context.Context, filename string) (Do
 		return Document{}, err
 	}
 	return Document{ID: id, Filename: filename, Status: StatusProcessing, CreatedAt: time.Now()}, nil
+}
+
+func (s *PostgresStore) GetDocument(ctx context.Context, id uuid.UUID) (Document, error) {
+	var doc Document
+	err := s.db.QueryRowContext(ctx,
+		`SELECT id, filename, status, created_at FROM documents WHERE id=$1`, id).
+		Scan(&doc.ID, &doc.Filename, &doc.Status, &doc.CreatedAt)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return Document{}, errors.New("document not found")
+		}
+		return Document{}, err
+	}
+	return doc, nil
 }
 
 func (s *PostgresStore) UpdateDocumentStatus(ctx context.Context, id uuid.UUID, status DocumentStatus) error {

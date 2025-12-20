@@ -60,6 +60,7 @@ func handleAnalyze(ctx context.Context, deps app.Deps, payload analyzeTaskPayloa
 	if err != nil {
 		return err
 	}
+
 	chunks, err := deps.Store.ListChunks(ctx, docID)
 	if err != nil {
 		return err
@@ -78,10 +79,17 @@ func handleAnalyze(ctx context.Context, deps app.Deps, payload analyzeTaskPayloa
 		return err
 	}
 
-	// Generate and save embeddings
+	// Generate and save embeddings with contextual enrichment
+	// Get document for contextual enrichment
+	doc, err := deps.Store.GetDocument(ctx, docID)
+	if err != nil {
+		return fmt.Errorf("failed to get document: %w", err)
+	}
+
 	texts := make([]string, len(chunks))
 	for i, c := range chunks {
-		texts[i] = c.Text
+		// Enrich chunk with document context for better embeddings
+		texts[i] = fmt.Sprintf("Document: %s\n\n%s", doc.Filename, c.Text)
 	}
 	vectors, err := deps.Embedder.EmbedBatch(texts)
 	if err != nil {

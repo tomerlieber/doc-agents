@@ -56,6 +56,7 @@ type SearchResult struct {
 // Store defines persistence contract; an external DB implementation can replace this.
 type Store interface {
 	CreateDocument(ctx context.Context, filename string) (Document, error)
+	GetDocument(ctx context.Context, id uuid.UUID) (Document, error)
 	UpdateDocumentStatus(ctx context.Context, id uuid.UUID, status DocumentStatus) error
 	SaveChunks(ctx context.Context, docID uuid.UUID, chunks []Chunk) ([]Chunk, error)
 	ListChunks(ctx context.Context, docID uuid.UUID) ([]Chunk, error)

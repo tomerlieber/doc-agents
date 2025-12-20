@@ -37,7 +37,7 @@ func TestLoadDefaults(t *testing.T) {
 		{"StoreProvider", cfg.StoreProvider, "postgres"},
 		{"QueueProvider", cfg.QueueProvider, "nats"},
 		{"LLMModel", cfg.LLMModel, "gpt-4o-mini"},
-		{"EmbeddingModel", cfg.EmbeddingModel, "text-embedding-3-small"},
+		{"EmbeddingModel", cfg.EmbeddingModel, "text-embedding-3-large"},
 	}
 
 	for _, tt := range tests {
