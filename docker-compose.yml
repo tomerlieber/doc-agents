@@ -109,6 +109,7 @@ services:
     env_file: [.env]
     environment:
       PORT: 8081
+      REDIS_ADDR: redis:6379
     depends_on:
       postgres:
         condition: service_healthy
