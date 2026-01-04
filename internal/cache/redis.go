@@ -10,11 +10,11 @@ import (
 )
 
 const (
-	// Key prefix for cached results
+	// Key prefix for cached query results
 	cacheKeyPrefix = "query:"
 
-	// Key prefix for document tracking
-	docKeyPrefix = "doc:"
+	// Key prefix for cached embeddings
+	embeddingKeyPrefix = "embed:"
 )
 
 type RedisCache struct {
@@ -67,6 +67,39 @@ func (c *RedisCache) SetQueryResult(ctx context.Context, key string, result *Que
 
 	// Store the result
 	if err := c.client.Set(ctx, cacheKeyPrefix+key, data, ttl).Err(); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// GetEmbedding retrieves a cached embedding vector for the given text
+func (c *RedisCache) GetEmbedding(ctx context.Context, text string) ([]float32, error) {
+	key := GenerateEmbeddingKey(text)
+	data, err := c.client.Get(ctx, embeddingKeyPrefix+key).Bytes()
+	if err == redis.Nil {
+		return nil, nil // Cache miss
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	var vector []float32
+	if err := json.Unmarshal(data, &vector); err != nil {
+		return nil, err
+	}
+	return vector, nil
+}
+
+// SetEmbedding stores an embedding vector for the given text with TTL
+func (c *RedisCache) SetEmbedding(ctx context.Context, text string, vector []float32, ttl time.Duration) error {
+	key := GenerateEmbeddingKey(text)
+	data, err := json.Marshal(vector)
+	if err != nil {
+		return err
+	}
+
+	if err := c.client.Set(ctx, embeddingKeyPrefix+key, data, ttl).Err(); err != nil {
 		return err
 	}
 

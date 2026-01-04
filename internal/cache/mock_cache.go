@@ -25,6 +25,19 @@ func (m *MockCache) SetQueryResult(ctx context.Context, key string, result *Quer
 	return args.Error(0)
 }
 
+func (m *MockCache) GetEmbedding(ctx context.Context, text string) ([]float32, error) {
+	args := m.Called(ctx, text)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]float32), args.Error(1)
+}
+
+func (m *MockCache) SetEmbedding(ctx context.Context, text string, vector []float32, ttl time.Duration) error {
+	args := m.Called(ctx, text, vector, ttl)
+	return args.Error(0)
+}
+
 func (m *MockCache) InvalidateDocument(ctx context.Context, docID string) error {
 	args := m.Called(ctx, docID)
 	return args.Error(0)

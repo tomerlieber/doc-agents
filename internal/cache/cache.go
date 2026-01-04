@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-// Cache provides query result caching
+// Cache provides query result and embedding caching
 type Cache interface {
 	// GetQueryResult retrieves a cached query result by key
 	// Returns nil if not found
@@ -17,6 +17,13 @@ type Cache interface {
 
 	// SetQueryResult stores a query result with TTL
 	SetQueryResult(ctx context.Context, key string, result *QueryResult, ttl time.Duration) error
+
+	// GetEmbedding retrieves a cached embedding vector for the given text
+	// Returns nil if not found
+	GetEmbedding(ctx context.Context, text string) ([]float32, error)
+
+	// SetEmbedding stores an embedding vector for the given text with TTL
+	SetEmbedding(ctx context.Context, text string, vector []float32, ttl time.Duration) error
 
 	// InvalidateDocument removes all cached queries for a document
 	InvalidateDocument(ctx context.Context, docID string) error
@@ -56,5 +63,12 @@ func GenerateCacheKey(question string, docIDs []string, topK int) string {
 
 	data := fmt.Sprintf("q:%s|docs:%s|k:%d", question, strings.Join(sortedIDs, ","), topK)
 	hash := sha256.Sum256([]byte(data))
+	return hex.EncodeToString(hash[:])
+}
+
+// GenerateEmbeddingKey creates a deterministic cache key for embedding text.
+// Uses SHA-256 hash to ensure same text always produces same key.
+func GenerateEmbeddingKey(text string) string {
+	hash := sha256.Sum256([]byte(text))
 	return hex.EncodeToString(hash[:])
 }

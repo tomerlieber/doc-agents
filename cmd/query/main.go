@@ -76,11 +76,28 @@ func queryHandler(deps app.QueryDeps) http.HandlerFunc {
 
 		// Cache miss - proceed with normal flow
 		ids := parseDocumentIDs(req.DocumentIDs)
-		vec, err := deps.Embedder.Embed(req.Question)
+
+		// Check embedding cache first
+		vec, err := deps.Cache.GetEmbedding(ctx, req.Question)
 		if err != nil {
-			httputil.Fail(deps.Log, w, "failed to embed question", err, http.StatusInternalServerError)
-			return
+			deps.Log.Warn("failed to get cached embedding", "err", err)
 		}
+
+		// If not cached, generate embedding
+		if vec == nil {
+			vec, err = deps.Embedder.Embed(req.Question)
+			if err != nil {
+				httputil.Fail(deps.Log, w, "failed to embed question", err, http.StatusInternalServerError)
+				return
+			}
+
+			// Store embedding in cache
+			cacheTTL := time.Duration(deps.Config.CacheTTL) * time.Second
+			if err := deps.Cache.SetEmbedding(ctx, req.Question, vec, cacheTTL); err != nil {
+				deps.Log.Warn("failed to cache embedding", "err", err)
+			}
+		}
+
 		results, err := deps.Store.TopK(ctx, ids, vec, req.TopK)
 		if err != nil {
 			httputil.Fail(deps.Log, w, "search failed", err, http.StatusInternalServerError)

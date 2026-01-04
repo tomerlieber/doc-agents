@@ -20,7 +20,7 @@ A Go-based multi-agent system that processes documents through specialized agent
 ✅ **Semantic Search**: Vector similarity search using OpenAI embeddings  
 ✅ **AI-Powered Summarization**: GPT-4o-mini generates summaries and key points  
 ✅ **Question Answering**: RAG-based QA with source attribution  
-✅ **Redis Caching**: Full query result caching with graceful degradation  
+✅ **Two-Layer Caching**: Query result + embedding caching for maximum performance  
 ✅ **Async Processing**: NATS message queue with retry logic  
 ✅ **Docker Deployment**: Full stack with docker-compose  
 ✅ **Health Checks**: All services expose `/healthz` endpoints
@@ -524,10 +524,20 @@ Where `<=>` is pgvector's cosine distance operator:
 
 #### Query Result Caching
 
-**Implementation**: Redis-based full query result caching with graceful degradation
+**Implementation**: Redis-based two-layer caching with graceful degradation
 
 **Architecture**:
 ```go
+type Cache interface {
+    // Full query result caching
+    GetQueryResult(ctx, key) (*QueryResult, error)
+    SetQueryResult(ctx, key, result, ttl) error
+    
+    // Embedding caching
+    GetEmbedding(ctx, text) ([]float32, error)
+    SetEmbedding(ctx, text, vector, ttl) error
+}
+
 type QueryResult struct {
     Answer     string
     Confidence float32
@@ -542,19 +552,29 @@ type Source struct {
 ```
 
 **Cache Strategy**:
-1. **Cache Key**: Deterministic SHA-256 hash of query parameters
-   - Formula: `hash(question + sorted_document_ids + top_k)`
-   - Ensures identical queries hit the same cache entry
-   
-2. **Storage Format**: Single-level JSON (human-readable)
-   ```json
-   {
-     "Answer": "...",
-     "Confidence": 0.95,
-     "Sources": [{"chunk_id":"...", "score":0.87, "preview":"..."}]
-   }
-   ```
-   
+
+1. **Layer 1: Query Result Cache** (Primary optimization)
+   - **Cache Key**: Deterministic SHA-256 hash of query parameters
+     - Formula: `hash(question + sorted_document_ids + top_k)`
+     - Ensures identical queries hit the same cache entry
+   - **Storage Format**: Single-level JSON (human-readable)
+     ```json
+     {
+       "Answer": "...",
+       "Confidence": 0.95,
+       "Sources": [{"chunk_id":"...", "score":0.87, "preview":"..."}]
+     }
+     ```
+   - **Performance**: Sub-millisecond response on cache hit
+   - **Savings**: Eliminates embedding generation, vector search, and LLM call
+
+2. **Layer 2: Embedding Cache** (Secondary optimization)
+   - **Cache Key**: SHA-256 hash of input text
+   - **Storage Format**: JSON array of floats
+   - **Performance**: Saves ~200-500ms on embedding API call
+   - **Savings**: Reduces OpenAI embedding API costs
+   - **Use Case**: Benefits repeated queries with same question but different documents
+
 3. **TTL**: 24 hours (configurable via `CACHE_TTL` env var)
    - Balances freshness vs. cost savings
    - Cache auto-expires after 24h to prevent stale results
@@ -565,14 +585,19 @@ type Source struct {
    - Ensures high availability even without caching
 
 **Performance Impact**:
-- **Cache Hit**: Sub-millisecond response (no OpenAI call)
+- **Full Cache Hit** (Query Result): Sub-millisecond response (no API calls)
+- **Partial Cache Hit** (Embedding only): ~2-2.5 seconds (saves embedding, still needs search + LLM)
 - **Cache Miss**: ~2-3 seconds (embedding + vector search + LLM)
-- **Cost Savings**: ~90% reduction in OpenAI API costs for repeated queries
+- **Cost Savings**: 
+  - Full hit: 100% reduction (no OpenAI costs)
+  - Partial hit: ~15-20% reduction (embedding API only)
+  - Typical workload: ~90% reduction for repeated queries
 
 **Rationale**:
-- **Full Query Result**: Cache entire answer + sources (not just embeddings)
-  - Embedding cache would still require expensive LLM call
-  - Full result cache eliminates all external API calls on hit
+- **Two-Layer Design**: 
+  - Query cache handles exact matches (most common case)
+  - Embedding cache handles same question, different documents (rare but valuable)
+  - Minimal overhead (both are hash lookups)
   
 - **Type Safety**: Use proper `[]Source` type instead of `[]byte`
   - No manual JSON marshal/unmarshal at call sites
@@ -585,8 +610,8 @@ type Source struct {
   - Reduces disk I/O and storage costs
 
 **Design Decisions**:
-- **Why Redis over In-Memory**: External cache survives query service restarts
-- **Why Full Result vs. Embedding**: Eliminates expensive LLM calls, not just embedding
+- **Why Redis over In-Memory**: External cache survives query service restarts and is shared across replicas
+- **Why Two Layers**: Query cache for exact matches, embedding cache for partial reuse
 - **Why 24-hour TTL**: Balance between freshness and cost savings for typical use cases
 - **Why Graceful Degradation**: Cache is optimization, not critical dependency
 

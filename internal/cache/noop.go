@@ -25,6 +25,16 @@ func (c *NoOpCache) SetQueryResult(ctx context.Context, key string, result *Quer
 	return nil
 }
 
+// GetEmbedding always returns nil (cache miss)
+func (c *NoOpCache) GetEmbedding(ctx context.Context, text string) ([]float32, error) {
+	return nil, nil
+}
+
+// SetEmbedding does nothing and always succeeds
+func (c *NoOpCache) SetEmbedding(ctx context.Context, text string, vector []float32, ttl time.Duration) error {
+	return nil
+}
+
 // InvalidateDocument does nothing and always succeeds
 func (c *NoOpCache) InvalidateDocument(ctx context.Context, docID string) error {
 	return nil

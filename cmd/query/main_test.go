@@ -56,11 +56,17 @@ func TestQueryHandler(t *testing.T) {
 				"top_k": 3
 			}`,
 			setup: func(s *store.MockStore, l *llm.MockClient, e *embeddings.MockEmbedder, c *cache.MockCache) {
-				// Cache miss
+				// Cache miss for query result
 				c.On("GetQueryResult", mock.Anything, mock.Anything).Return(nil, nil).Once()
+
+				// Cache miss for embedding
+				c.On("GetEmbedding", mock.Anything, "What is Go?").Return(nil, nil).Once()
 
 				// Expect Embed to be called for the question
 				e.On("Embed", "What is Go?").Return(embeddings.Vector{0.1, 0.2}, nil).Once()
+
+				// Expect embedding to be cached
+				c.On("SetEmbedding", mock.Anything, "What is Go?", mock.Anything, mock.Anything).Return(nil).Once()
 
 				// Expect TopK search
 				s.On("TopK", mock.Anything, mock.MatchedBy(func(ids []uuid.UUID) bool {
@@ -105,7 +111,9 @@ func TestQueryHandler(t *testing.T) {
 			}`,
 			setup: func(s *store.MockStore, l *llm.MockClient, e *embeddings.MockEmbedder, c *cache.MockCache) {
 				c.On("GetQueryResult", mock.Anything, mock.Anything).Return(nil, nil).Once()
+				c.On("GetEmbedding", mock.Anything, "What is Go?").Return(nil, nil).Once()
 				e.On("Embed", "What is Go?").Return(embeddings.Vector{0.1}, nil).Once()
+				c.On("SetEmbedding", mock.Anything, "What is Go?", mock.Anything, mock.Anything).Return(nil).Once()
 
 				// Expect TopK=5 (default)
 				s.On("TopK", mock.Anything, mock.Anything, mock.Anything, 5).
@@ -186,7 +194,9 @@ func TestQueryHandler(t *testing.T) {
 			}`,
 			setup: func(s *store.MockStore, l *llm.MockClient, e *embeddings.MockEmbedder, c *cache.MockCache) {
 				c.On("GetQueryResult", mock.Anything, mock.Anything).Return(nil, nil).Once()
+				c.On("GetEmbedding", mock.Anything, "What is Go?").Return(nil, nil).Once()
 				e.On("Embed", "What is Go?").Return(embeddings.Vector{0.1}, nil).Once()
+				c.On("SetEmbedding", mock.Anything, "What is Go?", mock.Anything, mock.Anything).Return(nil).Once()
 				s.On("TopK", mock.Anything, mock.Anything, mock.Anything, 5).
 					Return(nil, errors.New("database error")).Once()
 			},
@@ -201,7 +211,9 @@ func TestQueryHandler(t *testing.T) {
 			}`,
 			setup: func(s *store.MockStore, l *llm.MockClient, e *embeddings.MockEmbedder, c *cache.MockCache) {
 				c.On("GetQueryResult", mock.Anything, mock.Anything).Return(nil, nil).Once()
+				c.On("GetEmbedding", mock.Anything, "What is Go?").Return(nil, nil).Once()
 				e.On("Embed", "What is Go?").Return(embeddings.Vector{0.1}, nil).Once()
+				c.On("SetEmbedding", mock.Anything, "What is Go?", mock.Anything, mock.Anything).Return(nil).Once()
 				s.On("TopK", mock.Anything, mock.Anything, mock.Anything, 5).
 					Return([]store.SearchResult{}, nil).Once()
 				l.On("Answer", mock.Anything, mock.Anything, mock.Anything, float32(0.0)).
@@ -218,7 +230,9 @@ func TestQueryHandler(t *testing.T) {
 			}`,
 			setup: func(s *store.MockStore, l *llm.MockClient, e *embeddings.MockEmbedder, c *cache.MockCache) {
 				c.On("GetQueryResult", mock.Anything, mock.Anything).Return(nil, nil).Once()
+				c.On("GetEmbedding", mock.Anything, "What is Go?").Return(nil, nil).Once()
 				e.On("Embed", "What is Go?").Return(embeddings.Vector{0.1}, nil).Once()
+				c.On("SetEmbedding", mock.Anything, "What is Go?", mock.Anything, mock.Anything).Return(nil).Once()
 				s.On("TopK", mock.Anything, mock.Anything, mock.Anything, 5).
 					Return([]store.SearchResult{}, nil).Once()
 				l.On("Answer", mock.Anything, "What is Go?", "", float32(0.0)).
