@@ -111,15 +111,19 @@ func queryHandler(deps app.QueryDeps) http.HandlerFunc {
 		sources := buildSources(results)
 
 		// Store in cache
-		sourcesJSON, _ := json.Marshal(sources)
-		cacheTTL := time.Duration(deps.Config.CacheTTL) * time.Second
-		if err := deps.Cache.SetQueryResult(ctx, cacheKey, &cache.QueryResult{
-			Answer:     answer,
-			Confidence: confidence,
-			Sources:    sourcesJSON,
-		}, cacheTTL); err != nil {
-			// Log cache write failure but don't fail the request
-			deps.Log.Warn("failed to cache result", "err", err)
+		sourcesJSON, err := json.Marshal(sources)
+		if err != nil {
+			deps.Log.Warn("failed to marshal sources, skipping cache", "err", err)
+		} else {
+			cacheTTL := time.Duration(deps.Config.CacheTTL) * time.Second
+			if err := deps.Cache.SetQueryResult(ctx, cacheKey, &cache.QueryResult{
+				Answer:     answer,
+				Confidence: confidence,
+				Sources:    sourcesJSON,
+			}, cacheTTL); err != nil {
+				// Log cache write failure but don't fail the request
+				deps.Log.Warn("failed to cache result", "err", err)
+			}
 		}
 
 		httputil.WriteJSON(w, http.StatusOK, map[string]any{
