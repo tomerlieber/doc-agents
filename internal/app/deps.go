@@ -179,10 +179,18 @@ func buildBase() (BaseDeps, error) {
 func buildStore(cfg config.Config, log *slog.Logger) (store.Store, error) {
 	switch cfg.StoreProvider {
 	case "postgres":
-		if cfg.DBURL == "" {
-			return nil, fmt.Errorf("DB_URL is required when STORE_PROVIDER=postgres")
+		// Validate required database parameters
+		if cfg.DBUser == "" {
+			return nil, fmt.Errorf("DB_USER is required when STORE_PROVIDER=postgres")
 		}
-		db, err := store.NewPostgres(cfg.DBURL)
+		if cfg.DBPassword == "" {
+			return nil, fmt.Errorf("DB_PASSWORD is required when STORE_PROVIDER=postgres")
+		}
+		if cfg.DBName == "" {
+			return nil, fmt.Errorf("DB_NAME is required when STORE_PROVIDER=postgres")
+		}
+		dbURL := cfg.DatabaseURL()
+		db, err := store.NewPostgres(dbURL)
 		if err != nil {
 			return nil, fmt.Errorf("failed to initialize Postgres: %w", err)
 		}

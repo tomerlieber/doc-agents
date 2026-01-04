@@ -369,12 +369,16 @@ Key variables in `.env`:
 | `LLM_MODEL` | `gpt-4o-mini` | OpenAI model for summarization and QA |
 | `EMBEDDING_MODEL` | `text-embedding-3-large` | OpenAI embedding model |
 | `STORE_PROVIDER` | `postgres` | Database provider (currently only `postgres` supported) |
-| `DB_URL` | `postgres://mate:mate@postgres:5432/mate` | PostgreSQL connection string |
+| `DB_HOST` | `localhost` | PostgreSQL server host |
+| `DB_PORT` | `5432` | PostgreSQL server port |
+| `DB_USER` | *(required)* | PostgreSQL username |
+| `DB_PASSWORD` | *(required)* | PostgreSQL password |
+| `DB_NAME` | *(required)* | PostgreSQL database name |
 | `QUEUE_DRIVER` | `nats` | Message queue driver (currently only `nats` supported) |
 | `QUEUE_URL` | `nats://nats:4222` | NATS server URL |
 | `CACHE_PROVIDER` | `redis` | Cache provider (currently only `redis` supported) |
 | `REDIS_ADDR` | `redis:6379` | Redis server address |
-| `REDIS_PASSWORD` | `redis_secure_password` | Redis authentication password |
+| `REDIS_PASSWORD` | *(required)* | Redis password |
 | `CACHE_TTL` | `86400` | Cache TTL in seconds (default: 24 hours) |
 
 **Note**: All environment variables are loaded via Docker Compose's `env_file`. For local development outside Docker, export them manually or source the `.env` file.
@@ -706,7 +710,7 @@ go test ./internal/chunker -v
 - [ ] API authentication and authorization (no API keys or JWT)
 - [ ] Rate limiting per user/IP (vulnerable to abuse)
 - [ ] Secrets management (API keys in env vars, should use Vault/K8s secrets)
-- [ ] TLS/HTTPS for all communication (including Redis)
+- [ ] TLS/HTTPS for all communication
 - [ ] CORS configuration for cross-origin requests
 - [ ] Request size limits beyond file uploads
 - [ ] Audit logging for compliance

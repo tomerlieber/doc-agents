@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"log/slog"
 
 	"github.com/caarlos0/env/v10"
@@ -17,7 +18,11 @@ type Config struct {
 
 	// Store
 	StoreProvider string `env:"STORE_PROVIDER" envDefault:"postgres"` // "postgres" (production database)
-	DBURL         string `env:"DB_URL"`
+	DBHost        string `env:"DB_HOST" envDefault:"localhost"`       // Keep default: standard for local dev
+	DBPort        int    `env:"DB_PORT" envDefault:"5432"`            // Keep default: standard PostgreSQL port
+	DBUser        string `env:"DB_USER"`                              // Required: explicit username
+	DBPassword    string `env:"DB_PASSWORD"`                          // Required: explicit password
+	DBName        string `env:"DB_NAME"`                              // Required: explicit database name
 
 	// Queue
 	QueueProvider string `env:"QUEUE_PROVIDER" envDefault:"nats"` // "nats" (required for inter-service communication)
@@ -43,4 +48,17 @@ func Load() Config {
 		slog.Warn("failed to parse env; using defaults where set", "err", err)
 	}
 	return cfg
+}
+
+// DatabaseURL constructs a PostgreSQL connection URL from individual components.
+// SSL mode is hard-coded to "disable" for development/demo environments.
+// For production, modify this to use "require" or configure via connection pooler.
+func (c Config) DatabaseURL() string {
+	return fmt.Sprintf("postgres://%s:%s@%s:%d/%s?sslmode=disable",
+		c.DBUser,
+		c.DBPassword,
+		c.DBHost,
+		c.DBPort,
+		c.DBName,
+	)
 }
