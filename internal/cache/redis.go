@@ -2,11 +2,8 @@ package cache
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -110,23 +107,4 @@ func (c *RedisCache) InvalidateDocument(ctx context.Context, docID string) error
 // Close closes the cache connection
 func (c *RedisCache) Close() error {
 	return c.client.Close()
-}
-
-// GenerateCacheKey creates a deterministic cache key from query parameters
-func GenerateCacheKey(question string, docIDs []string, topK int) string {
-	// Sort docIDs to ensure consistent ordering
-	sortedIDs := make([]string, len(docIDs))
-	copy(sortedIDs, docIDs)
-	// Simple sort for determinism
-	for i := 0; i < len(sortedIDs); i++ {
-		for j := i + 1; j < len(sortedIDs); j++ {
-			if sortedIDs[i] > sortedIDs[j] {
-				sortedIDs[i], sortedIDs[j] = sortedIDs[j], sortedIDs[i]
-			}
-		}
-	}
-
-	data := fmt.Sprintf("q:%s|docs:%s|k:%d", question, strings.Join(sortedIDs, ","), topK)
-	hash := sha256.Sum256([]byte(data))
-	return hex.EncodeToString(hash[:])
 }
