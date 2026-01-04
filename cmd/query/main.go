@@ -23,12 +23,6 @@ type queryRequest struct {
 	TopK        int      `json:"top_k" validate:"omitempty,min=1,max=20"`
 }
 
-type source struct {
-	ChunkID string  `json:"chunk_id"`
-	Score   float32 `json:"score"`
-	Preview string  `json:"preview"` // Truncated text preview
-}
-
 func main() {
 	deps, err := app.BuildQuery()
 	if err != nil {
@@ -71,19 +65,13 @@ func queryHandler(deps app.QueryDeps) http.HandlerFunc {
 		cacheKey := cache.GenerateCacheKey(req.Question, req.DocumentIDs, req.TopK)
 		if cached, err := deps.Cache.GetQueryResult(ctx, cacheKey); err == nil && cached != nil {
 			deps.Log.Info("cache hit", "question", req.Question)
-
-			var sources []source
-			if err := json.Unmarshal(cached.Sources, &sources); err == nil {
-				httputil.WriteJSON(w, http.StatusOK, map[string]any{
-					"answer":     cached.Answer,
-					"sources":    sources,
-					"confidence": cached.Confidence,
-					"cached":     true,
-				})
-				return
-			}
-			// If unmarshaling fails, proceed with normal flow
-			deps.Log.Warn("failed to unmarshal cached sources", "err", err)
+			httputil.WriteJSON(w, http.StatusOK, map[string]any{
+				"answer":     cached.Answer,
+				"sources":    cached.Sources,
+				"confidence": cached.Confidence,
+				"cached":     true,
+			})
+			return
 		}
 
 		// Cache miss - proceed with normal flow
@@ -111,19 +99,14 @@ func queryHandler(deps app.QueryDeps) http.HandlerFunc {
 		sources := buildSources(results)
 
 		// Store in cache
-		sourcesJSON, err := json.Marshal(sources)
-		if err != nil {
-			deps.Log.Warn("failed to marshal sources, skipping cache", "err", err)
-		} else {
-			cacheTTL := time.Duration(deps.Config.CacheTTL) * time.Second
-			if err := deps.Cache.SetQueryResult(ctx, cacheKey, &cache.QueryResult{
-				Answer:     answer,
-				Confidence: confidence,
-				Sources:    sourcesJSON,
-			}, cacheTTL); err != nil {
-				// Log cache write failure but don't fail the request
-				deps.Log.Warn("failed to cache result", "err", err)
-			}
+		cacheTTL := time.Duration(deps.Config.CacheTTL) * time.Second
+		if err := deps.Cache.SetQueryResult(ctx, cacheKey, &cache.QueryResult{
+			Answer:     answer,
+			Confidence: confidence,
+			Sources:    sources,
+		}, cacheTTL); err != nil {
+			// Log cache write failure but don't fail the request
+			deps.Log.Warn("failed to cache result", "err", err)
 		}
 
 		httputil.WriteJSON(w, http.StatusOK, map[string]any{
@@ -170,10 +153,10 @@ func calculateAvgSimilarity(results []store.SearchResult) float32 {
 }
 
 // buildSources converts search results into source structs with truncated previews.
-func buildSources(results []store.SearchResult) []source {
-	sources := make([]source, len(results))
+func buildSources(results []store.SearchResult) []cache.Source {
+	sources := make([]cache.Source, len(results))
 	for i, res := range results {
-		sources[i] = source{
+		sources[i] = cache.Source{
 			ChunkID: res.Chunk.ID.String(),
 			Score:   res.Score,
 			Preview: truncate(res.Chunk.Text, 150),

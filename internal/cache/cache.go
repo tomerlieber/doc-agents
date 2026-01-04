@@ -25,5 +25,12 @@ type Cache interface {
 type QueryResult struct {
 	Answer     string
 	Confidence float32
-	Sources    []byte // JSON-encoded sources
+	Sources    []Source
+}
+
+// Source represents a document chunk source in query results
+type Source struct {
+	ChunkID string  `json:"chunk_id"`
+	Score   float32 `json:"score"`
+	Preview string  `json:"preview"` // Truncated text preview
 }

@@ -24,7 +24,9 @@ func TestNoOpCache(t *testing.T) {
 	err = cache.SetQueryResult(ctx, "test-key", &QueryResult{
 		Answer:     "test answer",
 		Confidence: 0.95,
-		Sources:    []byte(`[{"chunk_id":"123"}]`),
+		Sources: []Source{
+			{ChunkID: "123", Score: 0.9, Preview: "test"},
+		},
 	}, 1*time.Hour)
 	if err != nil {
 		t.Errorf("Expected no error on SetQueryResult, got %v", err)
