@@ -329,6 +329,7 @@ cd doc-agents
 # 2. Set up environment variables
 cp env.example .env
 # Edit .env and replace sk-your-openai-api-key-here with your actual OpenAI API key
+# Edit .env and change redis_secure_password to a strong password
 # Other variables (database, ports, etc.) can remain as defaults
 
 # 3. Start all services
@@ -373,7 +374,7 @@ Key variables in `.env`:
 | `QUEUE_URL` | `nats://nats:4222` | NATS server URL |
 | `CACHE_PROVIDER` | `redis` | Cache provider (currently only `redis` supported) |
 | `REDIS_ADDR` | `redis:6379` | Redis server address |
-| `REDIS_PASSWORD` | *(empty)* | Redis password (if required) |
+| `REDIS_PASSWORD` | `redis_secure_password` | Redis authentication password |
 | `CACHE_TTL` | `86400` | Cache TTL in seconds (default: 24 hours) |
 
 **Note**: All environment variables are loaded via Docker Compose's `env_file`. For local development outside Docker, export them manually or source the `.env` file.
@@ -705,10 +706,15 @@ go test ./internal/chunker -v
 - [ ] API authentication and authorization (no API keys or JWT)
 - [ ] Rate limiting per user/IP (vulnerable to abuse)
 - [ ] Secrets management (API keys in env vars, should use Vault/K8s secrets)
-- [ ] TLS/HTTPS for all communication
+- [ ] TLS/HTTPS for all communication (including Redis)
 - [ ] CORS configuration for cross-origin requests
 - [ ] Request size limits beyond file uploads
 - [ ] Audit logging for compliance
+
+**Implemented Security Features:**
+- ✅ Redis password authentication (requirepass)
+- ✅ Input validation on all API endpoints
+- ✅ Database parameterized queries (SQL injection protection)
 
 ## Development Notes
 

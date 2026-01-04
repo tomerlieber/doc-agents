@@ -32,7 +32,7 @@ type Config struct {
 	// Cache
 	CacheProvider string `env:"CACHE_PROVIDER" envDefault:"redis"` // "redis" (production cache)
 	RedisAddr     string `env:"REDIS_ADDR" envDefault:"localhost:6379"`
-	RedisPassword string `env:"REDIS_PASSWORD" envDefault:""`
+	RedisPassword string `env:"REDIS_PASSWORD"`               // Required for Redis authentication
 	CacheTTL      int    `env:"CACHE_TTL" envDefault:"86400"` // Cache TTL in seconds (default: 24 hours)
 }
 
