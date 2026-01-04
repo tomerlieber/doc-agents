@@ -14,19 +14,22 @@ import (
 	"github.com/stretchr/testify/mock"
 
 	"doc-agents/internal/app"
+	"doc-agents/internal/cache"
 	"doc-agents/internal/config"
 	"doc-agents/internal/embeddings"
 	"doc-agents/internal/llm"
 	"doc-agents/internal/store"
 )
 
-func newTestDeps(st store.Store, l llm.Client, e embeddings.Embedder) app.Deps {
+func newTestDeps(st store.Store, l llm.Client, e embeddings.Embedder, c cache.Cache) app.Deps {
 	return app.Deps{
 		Store:    st,
 		LLM:      l,
 		Embedder: e,
+		Cache:    c,
 		Config: config.Config{
 			EmbeddingModel: "test-model",
+			CacheTTL:       86400,
 		},
 		Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
 	}
@@ -39,7 +42,7 @@ func TestQueryHandler(t *testing.T) {
 	tests := []struct {
 		name           string
 		requestBody    string
-		setup          func(*store.MockStore, *llm.MockClient, *embeddings.MockEmbedder)
+		setup          func(*store.MockStore, *llm.MockClient, *embeddings.MockEmbedder, *cache.MockCache)
 		wantStatusCode int
 		checkResponse  func(*testing.T, *http.Response)
 	}{
@@ -50,7 +53,10 @@ func TestQueryHandler(t *testing.T) {
 				"document_ids": ["` + validDocID.String() + `"],
 				"top_k": 3
 			}`,
-			setup: func(s *store.MockStore, l *llm.MockClient, e *embeddings.MockEmbedder) {
+			setup: func(s *store.MockStore, l *llm.MockClient, e *embeddings.MockEmbedder, c *cache.MockCache) {
+				// Cache miss
+				c.On("GetQueryResult", mock.Anything, mock.Anything).Return(nil, nil).Once()
+
 				// Expect Embed to be called for the question
 				e.On("Embed", "What is Go?").Return(embeddings.Vector{0.1, 0.2}, nil).Once()
 
@@ -67,6 +73,9 @@ func TestQueryHandler(t *testing.T) {
 				// Expect LLM.Answer to be called with contextQuality 0.95
 				l.On("Answer", mock.Anything, "What is Go?", mock.Anything, float32(0.95)).
 					Return("Go is a programming language developed by Google", float64(0.95), nil).Once()
+
+				// Expect cache to be set
+				c.On("SetQueryResult", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil).Once()
 			},
 			wantStatusCode: http.StatusOK,
 			checkResponse: func(t *testing.T, resp *http.Response) {
@@ -92,7 +101,8 @@ func TestQueryHandler(t *testing.T) {
 				"question": "What is Go?",
 				"document_ids": ["` + validDocID.String() + `"]
 			}`,
-			setup: func(s *store.MockStore, l *llm.MockClient, e *embeddings.MockEmbedder) {
+			setup: func(s *store.MockStore, l *llm.MockClient, e *embeddings.MockEmbedder, c *cache.MockCache) {
+				c.On("GetQueryResult", mock.Anything, mock.Anything).Return(nil, nil).Once()
 				e.On("Embed", "What is Go?").Return(embeddings.Vector{0.1}, nil).Once()
 
 				// Expect TopK=5 (default)
@@ -102,6 +112,8 @@ func TestQueryHandler(t *testing.T) {
 				// contextQuality will be 0.0 for empty results
 				l.On("Answer", mock.Anything, mock.Anything, mock.Anything, float32(0.0)).
 					Return("Answer", float64(0.8), nil).Once()
+
+				c.On("SetQueryResult", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil).Once()
 			},
 			wantStatusCode: http.StatusOK,
 			checkResponse:  func(t *testing.T, resp *http.Response) {},
@@ -109,7 +121,7 @@ func TestQueryHandler(t *testing.T) {
 		{
 			name:           "invalid JSON payload returns 400",
 			requestBody:    `{invalid json}`,
-			setup:          func(s *store.MockStore, l *llm.MockClient, e *embeddings.MockEmbedder) {},
+			setup:          func(s *store.MockStore, l *llm.MockClient, e *embeddings.MockEmbedder, c *cache.MockCache) {},
 			wantStatusCode: http.StatusBadRequest,
 			checkResponse:  func(t *testing.T, resp *http.Response) {},
 		},
@@ -119,7 +131,7 @@ func TestQueryHandler(t *testing.T) {
 				"question": "",
 				"document_ids": ["` + validDocID.String() + `"]
 			}`,
-			setup:          func(s *store.MockStore, l *llm.MockClient, e *embeddings.MockEmbedder) {},
+			setup:          func(s *store.MockStore, l *llm.MockClient, e *embeddings.MockEmbedder, c *cache.MockCache) {},
 			wantStatusCode: http.StatusBadRequest,
 			checkResponse:  func(t *testing.T, resp *http.Response) {},
 		},
@@ -129,7 +141,7 @@ func TestQueryHandler(t *testing.T) {
 				"question": "Hi",
 				"document_ids": ["` + validDocID.String() + `"]
 			}`,
-			setup:          func(s *store.MockStore, l *llm.MockClient, e *embeddings.MockEmbedder) {},
+			setup:          func(s *store.MockStore, l *llm.MockClient, e *embeddings.MockEmbedder, c *cache.MockCache) {},
 			wantStatusCode: http.StatusBadRequest,
 			checkResponse:  func(t *testing.T, resp *http.Response) {},
 		},
@@ -139,7 +151,7 @@ func TestQueryHandler(t *testing.T) {
 				"question": "Valid question here",
 				"document_ids": ["not-a-uuid"]
 			}`,
-			setup:          func(s *store.MockStore, l *llm.MockClient, e *embeddings.MockEmbedder) {},
+			setup:          func(s *store.MockStore, l *llm.MockClient, e *embeddings.MockEmbedder, c *cache.MockCache) {},
 			wantStatusCode: http.StatusBadRequest,
 			checkResponse:  func(t *testing.T, resp *http.Response) {},
 		},
@@ -149,7 +161,7 @@ func TestQueryHandler(t *testing.T) {
 				"question": "Valid question",
 				"document_ids": []
 			}`,
-			setup:          func(s *store.MockStore, l *llm.MockClient, e *embeddings.MockEmbedder) {},
+			setup:          func(s *store.MockStore, l *llm.MockClient, e *embeddings.MockEmbedder, c *cache.MockCache) {},
 			wantStatusCode: http.StatusBadRequest,
 			checkResponse:  func(t *testing.T, resp *http.Response) {},
 		},
@@ -160,7 +172,7 @@ func TestQueryHandler(t *testing.T) {
 				"document_ids": ["` + validDocID.String() + `"],
 				"top_k": 25
 			}`,
-			setup:          func(s *store.MockStore, l *llm.MockClient, e *embeddings.MockEmbedder) {},
+			setup:          func(s *store.MockStore, l *llm.MockClient, e *embeddings.MockEmbedder, c *cache.MockCache) {},
 			wantStatusCode: http.StatusBadRequest,
 			checkResponse:  func(t *testing.T, resp *http.Response) {},
 		},
@@ -170,7 +182,8 @@ func TestQueryHandler(t *testing.T) {
 				"question": "What is Go?",
 				"document_ids": ["` + validDocID.String() + `"]
 			}`,
-			setup: func(s *store.MockStore, l *llm.MockClient, e *embeddings.MockEmbedder) {
+			setup: func(s *store.MockStore, l *llm.MockClient, e *embeddings.MockEmbedder, c *cache.MockCache) {
+				c.On("GetQueryResult", mock.Anything, mock.Anything).Return(nil, nil).Once()
 				e.On("Embed", "What is Go?").Return(embeddings.Vector{0.1}, nil).Once()
 				s.On("TopK", mock.Anything, mock.Anything, mock.Anything, 5).
 					Return(nil, errors.New("database error")).Once()
@@ -184,7 +197,8 @@ func TestQueryHandler(t *testing.T) {
 				"question": "What is Go?",
 				"document_ids": ["` + validDocID.String() + `"]
 			}`,
-			setup: func(s *store.MockStore, l *llm.MockClient, e *embeddings.MockEmbedder) {
+			setup: func(s *store.MockStore, l *llm.MockClient, e *embeddings.MockEmbedder, c *cache.MockCache) {
+				c.On("GetQueryResult", mock.Anything, mock.Anything).Return(nil, nil).Once()
 				e.On("Embed", "What is Go?").Return(embeddings.Vector{0.1}, nil).Once()
 				s.On("TopK", mock.Anything, mock.Anything, mock.Anything, 5).
 					Return([]store.SearchResult{}, nil).Once()
@@ -200,12 +214,14 @@ func TestQueryHandler(t *testing.T) {
 				"question": "What is Go?",
 				"document_ids": ["` + uuid.New().String() + `"]
 			}`,
-			setup: func(s *store.MockStore, l *llm.MockClient, e *embeddings.MockEmbedder) {
+			setup: func(s *store.MockStore, l *llm.MockClient, e *embeddings.MockEmbedder, c *cache.MockCache) {
+				c.On("GetQueryResult", mock.Anything, mock.Anything).Return(nil, nil).Once()
 				e.On("Embed", "What is Go?").Return(embeddings.Vector{0.1}, nil).Once()
 				s.On("TopK", mock.Anything, mock.Anything, mock.Anything, 5).
 					Return([]store.SearchResult{}, nil).Once()
 				l.On("Answer", mock.Anything, "What is Go?", "", float32(0.0)).
 					Return("I don't have enough context", float64(0.3), nil).Once()
+				c.On("SetQueryResult", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil).Once()
 			},
 			wantStatusCode: http.StatusOK,
 			checkResponse: func(t *testing.T, resp *http.Response) {
@@ -229,14 +245,15 @@ func TestQueryHandler(t *testing.T) {
 			mockStore := new(store.MockStore)
 			mockLLM := new(llm.MockClient)
 			mockEmbedder := new(embeddings.MockEmbedder)
+			mockCache := new(cache.MockCache)
 
 			// Setup expectations
 			if tt.setup != nil {
-				tt.setup(mockStore, mockLLM, mockEmbedder)
+				tt.setup(mockStore, mockLLM, mockEmbedder, mockCache)
 			}
 
 			// Create test dependencies
-			deps := newTestDeps(mockStore, mockLLM, mockEmbedder)
+			deps := newTestDeps(mockStore, mockLLM, mockEmbedder, mockCache)
 
 			// Create handler
 			handler := queryHandler(deps)
@@ -268,6 +285,7 @@ func TestQueryHandler(t *testing.T) {
 			mockStore.AssertExpectations(t)
 			mockLLM.AssertExpectations(t)
 			mockEmbedder.AssertExpectations(t)
+			mockCache.AssertExpectations(t)
 		})
 	}
 }

@@ -7,10 +7,12 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 
 	"doc-agents/internal/app"
+	"doc-agents/internal/cache"
 	"doc-agents/internal/httputil"
 	"doc-agents/internal/store"
 )
@@ -65,7 +67,26 @@ func queryHandler(deps app.Deps) http.HandlerFunc {
 
 		ctx := r.Context()
 
-		// Embed question and search for relevant chunks
+		// Check cache first
+		cacheKey := cache.GenerateCacheKey(req.Question, req.DocumentIDs, req.TopK)
+		if cached, err := deps.Cache.GetQueryResult(ctx, cacheKey); err == nil && cached != nil {
+			deps.Log.Info("cache hit", "question", req.Question)
+
+			var sources []source
+			if err := json.Unmarshal(cached.Sources, &sources); err == nil {
+				httputil.WriteJSON(w, http.StatusOK, map[string]any{
+					"answer":     cached.Answer,
+					"sources":    sources,
+					"confidence": cached.Confidence,
+					"cached":     true,
+				})
+				return
+			}
+			// If unmarshaling fails, proceed with normal flow
+			deps.Log.Warn("failed to unmarshal cached sources", "err", err)
+		}
+
+		// Cache miss - proceed with normal flow
 		ids := parseDocumentIDs(req.DocumentIDs)
 		vec, err := deps.Embedder.Embed(req.Question)
 		if err != nil {
@@ -87,10 +108,25 @@ func queryHandler(deps app.Deps) http.HandlerFunc {
 			return
 		}
 
+		sources := buildSources(results)
+
+		// Store in cache
+		sourcesJSON, _ := json.Marshal(sources)
+		cacheTTL := time.Duration(deps.Config.CacheTTL) * time.Second
+		if err := deps.Cache.SetQueryResult(ctx, cacheKey, &cache.QueryResult{
+			Answer:     answer,
+			Confidence: confidence,
+			Sources:    sourcesJSON,
+		}, cacheTTL); err != nil {
+			// Log cache write failure but don't fail the request
+			deps.Log.Warn("failed to cache result", "err", err)
+		}
+
 		httputil.WriteJSON(w, http.StatusOK, map[string]any{
 			"answer":     answer,
-			"sources":    buildSources(results),
+			"sources":    sources,
 			"confidence": confidence,
+			"cached":     false,
 		})
 	}
 }

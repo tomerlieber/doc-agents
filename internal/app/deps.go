@@ -7,6 +7,7 @@ import (
 	"github.com/nats-io/nats.go"
 	"github.com/openai/openai-go/v3"
 
+	"doc-agents/internal/cache"
 	"doc-agents/internal/config"
 	"doc-agents/internal/embeddings"
 	"doc-agents/internal/llm"
@@ -23,6 +24,7 @@ type Deps struct {
 	Queue    queue.Queue
 	Embedder embeddings.Embedder
 	LLM      llm.Client
+	Cache    cache.Cache
 }
 
 // Build loads config and shared components.
@@ -47,6 +49,12 @@ func Build() (Deps, error) {
 	if err != nil {
 		return Deps{}, fmt.Errorf("failed to initialize embedder: %w", err)
 	}
+	cacheClient, err := buildCache(cfg, log)
+	if err != nil {
+		// Cache is optional - degrade gracefully if unavailable
+		log.Warn("failed to initialize cache, continuing without caching", "err", err)
+		cacheClient = cache.NewNoOpCache()
+	}
 	return Deps{
 		Config:   cfg,
 		Log:      log,
@@ -54,6 +62,7 @@ func Build() (Deps, error) {
 		Queue:    q,
 		Embedder: embedder,
 		LLM:      llmClient,
+		Cache:    cacheClient,
 	}, nil
 }
 
@@ -122,5 +131,19 @@ func buildEmbedder(cfg config.Config, log *slog.Logger) (embeddings.Embedder, er
 		return embedder, nil
 	default:
 		return nil, fmt.Errorf("invalid LLM_PROVIDER: %s (valid option: openai)", cfg.LLMProvider)
+	}
+}
+
+func buildCache(cfg config.Config, log *slog.Logger) (cache.Cache, error) {
+	switch cfg.CacheProvider {
+	case "redis":
+		cacheClient, err := cache.NewRedisCache(cfg.RedisAddr, cfg.RedisPassword)
+		if err != nil {
+			return nil, fmt.Errorf("failed to initialize Redis cache: %w", err)
+		}
+		log.Info("using Redis cache", "addr", cfg.RedisAddr, "ttl_seconds", cfg.CacheTTL)
+		return cacheClient, nil
+	default:
+		return nil, fmt.Errorf("invalid CACHE_PROVIDER: %s (valid option: redis)", cfg.CacheProvider)
 	}
 }

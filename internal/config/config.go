@@ -28,6 +28,12 @@ type Config struct {
 	OpenAIKey      string `env:"OPENAI_API_KEY"`
 	LLMModel       string `env:"LLM_MODEL" envDefault:"gpt-4o-mini"`
 	EmbeddingModel string `env:"EMBEDDING_MODEL" envDefault:"text-embedding-3-large"`
+
+	// Cache
+	CacheProvider string `env:"CACHE_PROVIDER" envDefault:"redis"` // "redis" (production cache)
+	RedisAddr     string `env:"REDIS_ADDR" envDefault:"localhost:6379"`
+	RedisPassword string `env:"REDIS_PASSWORD" envDefault:""`
+	CacheTTL      int    `env:"CACHE_TTL" envDefault:"86400"` // Cache TTL in seconds (default: 24 hours)
 }
 
 // Load reads configuration from environment variables with defaults.
