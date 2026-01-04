@@ -20,6 +20,7 @@ A Go-based multi-agent system that processes documents through specialized agent
 ✅ **Semantic Search**: Vector similarity search using OpenAI embeddings  
 ✅ **AI-Powered Summarization**: GPT-4o-mini generates summaries and key points  
 ✅ **Question Answering**: RAG-based QA with source attribution  
+✅ **Redis Caching**: Full query result caching with graceful degradation  
 ✅ **Async Processing**: NATS message queue with retry logic  
 ✅ **Docker Deployment**: Full stack with docker-compose  
 ✅ **Health Checks**: All services expose `/healthz` endpoints
@@ -49,6 +50,7 @@ flowchart TB
     
     subgraph "Query Service"
         QA[Query Agent :8081<br/>Semantic Search + QA]
+        R[Redis Cache<br/>Query Results]
     end
     
     subgraph "Data Layer"
@@ -77,15 +79,19 @@ flowchart TB
     
     U -->|15. POST /query| G
     G -->|16. Forward request| QA
-    QA -->|17. Vector similarity search| DB
-    QA -->|18. Generate answer| OAI
-    QA -->|19. Return answer + sources| G
-    G -->|20. Return to client| U
+    QA -->|17. Check cache| R
+    R -.->|Cache hit| QA
+    QA -->|18. Vector similarity search| DB
+    QA -->|19. Generate answer| OAI
+    QA -->|20. Store in cache| R
+    QA -->|21. Return answer + sources| G
+    G -->|22. Return to client| U
     
     style G fill:#4CAF50
     style P fill:#2196F3
     style A fill:#2196F3
     style QA fill:#FF9800
+    style R fill:#FFC107
     style DB fill:#9C27B0
     style Q fill:#00BCD4
     style OAI fill:#F44336
@@ -99,6 +105,7 @@ flowchart TB
 | **Parser Agent** | Go, ledongthuc/pdf | Text extraction, document chunking | Horizontal (2 replicas) |
 | **Analysis Agent** | Go, OpenAI SDK | Generate embeddings & summaries | Horizontal (rate limit aware) |
 | **Query Agent** | Go, OpenAI SDK | Semantic search, question answering | Horizontal (stateless) |
+| **Redis Cache** | Redis 7 | Query result caching, TTL-based expiry | Single instance (ephemeral) |
 | **NATS** | NATS JetStream | Async task queue, retry handling | Clustered (production) |
 | **PostgreSQL** | pgvector extension | Document storage, vector search | Vertical + read replicas |
 
@@ -126,13 +133,24 @@ flowchart TB
 ```
 1. Client sends question + document IDs → Gateway
 2. Gateway forwards to Query Agent
-3. Query Agent embeds the question
-4. Query Agent performs vector similarity search in database
-5. Database computes cosine similarity using pgvector (<=> operator)
-6. Database returns top-k similar chunks with scores (using IVFFlat index)
-7. Query Agent calls OpenAI with context + question
-8. Query Agent returns answer with sources
+3. Query Agent checks Redis cache using deterministic key
+4. On cache hit: return cached answer + sources immediately (sub-millisecond)
+5. On cache miss:
+   a. Query Agent embeds the question using OpenAI
+   b. Query Agent performs vector similarity search in database
+   c. Database computes cosine similarity using pgvector (<=> operator)
+   d. Database returns top-k similar chunks with scores (using IVFFlat index)
+   e. Query Agent calls OpenAI with context + question
+   f. Query Agent stores result in Redis cache (24-hour TTL)
+   g. Query Agent returns answer with sources and "cached: false" flag
 ```
+
+**Cache Key Generation:**
+```
+SHA-256 hash of: "question={question}|docs={sorted_doc_ids}|topk={top_k}"
+```
+
+This ensures identical queries (same question, documents, and top_k) hit the cache.
 
 ### Error Handling & Retry
 
@@ -251,11 +269,25 @@ curl -X POST http://localhost:8080/api/query \
       "preview": "Microservices enable independent deployment and scaling, allowing teams to work autonomously. They enable better fault isolation..."
     }
   ],
-  "confidence": 0.87
+  "confidence": 0.87,
+  "cached": false
 }
 ```
 
-*Note: The `preview` field contains the first 150 characters of the chunk text, truncated at word boundaries for readability.*
+**Cached Response:** (200 OK)
+```json
+{
+  "answer": "Microservices provide several benefits...",
+  "sources": [...],
+  "confidence": 0.87,
+  "cached": true
+}
+```
+
+*Notes:*
+- *The `preview` field contains the first 150 characters of the chunk text, truncated at word boundaries for readability.*
+- *The `cached` field indicates whether the result was retrieved from cache (true) or freshly computed (false).*
+- *Cached responses are returned in sub-millisecond time, significantly faster than fresh queries.*
 
 ---
 
@@ -339,6 +371,10 @@ Key variables in `.env`:
 | `DB_URL` | `postgres://mate:mate@postgres:5432/mate` | PostgreSQL connection string |
 | `QUEUE_DRIVER` | `nats` | Message queue driver (currently only `nats` supported) |
 | `QUEUE_URL` | `nats://nats:4222` | NATS server URL |
+| `CACHE_PROVIDER` | `redis` | Cache provider (currently only `redis` supported) |
+| `REDIS_ADDR` | `redis:6379` | Redis server address |
+| `REDIS_PASSWORD` | *(empty)* | Redis password (if required) |
+| `CACHE_TTL` | `86400` | Cache TTL in seconds (default: 24 hours) |
 
 **Note**: All environment variables are loaded via Docker Compose's `env_file`. For local development outside Docker, export them manually or source the `.env` file.
 
@@ -481,6 +517,74 @@ Where `<=>` is pgvector's cosine distance operator:
 - After: 100K tokens = $0.013 (text-embedding-3-large)
 - For typical usage (~10-100 documents): negligible cost increase
 
+#### Query Result Caching
+
+**Implementation**: Redis-based full query result caching with graceful degradation
+
+**Architecture**:
+```go
+type QueryResult struct {
+    Answer     string
+    Confidence float32
+    Sources    []Source  // Strongly typed, not []byte
+}
+
+type Source struct {
+    ChunkID string
+    Score   float32
+    Preview string
+}
+```
+
+**Cache Strategy**:
+1. **Cache Key**: Deterministic SHA-256 hash of query parameters
+   - Formula: `hash(question + sorted_document_ids + top_k)`
+   - Ensures identical queries hit the same cache entry
+   
+2. **Storage Format**: Single-level JSON (human-readable)
+   ```json
+   {
+     "Answer": "...",
+     "Confidence": 0.95,
+     "Sources": [{"chunk_id":"...", "score":0.87, "preview":"..."}]
+   }
+   ```
+   
+3. **TTL**: 24 hours (configurable via `CACHE_TTL` env var)
+   - Balances freshness vs. cost savings
+   - Cache auto-expires after 24h to prevent stale results
+
+4. **Graceful Degradation**: 
+   - If Redis is unavailable, query service continues with `NoOpCache`
+   - Logs warning but doesn't fail requests
+   - Ensures high availability even without caching
+
+**Performance Impact**:
+- **Cache Hit**: Sub-millisecond response (no OpenAI call)
+- **Cache Miss**: ~2-3 seconds (embedding + vector search + LLM)
+- **Cost Savings**: ~90% reduction in OpenAI API costs for repeated queries
+
+**Rationale**:
+- **Full Query Result**: Cache entire answer + sources (not just embeddings)
+  - Embedding cache would still require expensive LLM call
+  - Full result cache eliminates all external API calls on hit
+  
+- **Type Safety**: Use proper `[]Source` type instead of `[]byte`
+  - No manual JSON marshal/unmarshal at call sites
+  - Compiler catches type errors
+  - Human-readable Redis entries for debugging
+  
+- **Ephemeral Cache**: Redis without persistence (data lost on restart)
+  - Cache is optimization, not source of truth
+  - Simplifies deployment (no volume management)
+  - Reduces disk I/O and storage costs
+
+**Design Decisions**:
+- **Why Redis over In-Memory**: External cache survives query service restarts
+- **Why Full Result vs. Embedding**: Eliminates expensive LLM calls, not just embedding
+- **Why 24-hour TTL**: Balance between freshness and cost savings for typical use cases
+- **Why Graceful Degradation**: Cache is optimization, not critical dependency
+
 #### Retry Strategy
 
 **Algorithm**: Exponential backoff with jitter
@@ -613,6 +717,7 @@ go test ./internal/chunker -v
 - **Language**: Go 1.23
 - **Web Framework**: Chi Router (lightweight, idiomatic)
 - **Database**: PostgreSQL with pgvector extension
+- **Cache**: Redis 7 (ephemeral, no persistence)
 - **Message Queue**: NATS (Core NATS, in-memory)
 - **LLM Provider**: OpenAI (GPT-4o-mini, text-embedding-3-large)
 - **Containerization**: Docker with multi-stage builds
