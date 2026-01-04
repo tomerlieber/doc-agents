@@ -17,15 +17,17 @@ import (
 	"doc-agents/internal/store"
 )
 
-func newTestDeps(st store.Store, l llm.Client, e embeddings.Embedder) app.Deps {
-	return app.Deps{
-		Store:    st,
+func newTestDeps(st store.Store, l llm.Client, e embeddings.Embedder) app.AnalysisDeps {
+	return app.AnalysisDeps{
+		BaseDeps: app.BaseDeps{
+			Store: st,
+			Config: config.Config{
+				EmbeddingModel: "test-model",
+			},
+			Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		},
 		LLM:      l,
 		Embedder: e,
-		Config: config.Config{
-			EmbeddingModel: "test-model",
-		},
-		Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
 	}
 }
 

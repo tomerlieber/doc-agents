@@ -23,7 +23,7 @@ type analyzeTaskPayload struct {
 }
 
 func main() {
-	deps, err := app.Build()
+	deps, err := app.BuildAnalysis()
 	if err != nil {
 		slog.Default().Error("failed to build dependencies", "err", err)
 		os.Exit(1)
@@ -54,7 +54,7 @@ func main() {
 	}
 }
 
-func handleAnalyze(ctx context.Context, deps app.Deps, payload analyzeTaskPayload) error {
+func handleAnalyze(ctx context.Context, deps app.AnalysisDeps, payload analyzeTaskPayload) error {
 	// Parse and fetch chunks
 	docID, err := uuid.Parse(payload.DocumentID)
 	if err != nil {

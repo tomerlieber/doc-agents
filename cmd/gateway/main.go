@@ -31,7 +31,7 @@ type parseTaskPayload struct {
 }
 
 func main() {
-	deps, err := app.Build()
+	deps, err := app.BuildGateway()
 	if err != nil {
 		slog.Default().Error("failed to build dependencies", "err", err)
 		os.Exit(1)
@@ -50,7 +50,7 @@ func main() {
 	}
 }
 
-func uploadHandler(deps app.Deps) http.HandlerFunc {
+func uploadHandler(deps app.GatewayDeps) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
 
@@ -146,7 +146,7 @@ func validateUploadedFile(r *http.Request, header *multipart.FileHeader, maxSize
 }
 
 // fail is gateway-specific error handler that can mark documents as failed
-func fail(deps app.Deps, ctx context.Context, w http.ResponseWriter, message string, err error, docID uuid.UUID, status int, markFailed bool) {
+func fail(deps app.GatewayDeps, ctx context.Context, w http.ResponseWriter, message string, err error, docID uuid.UUID, status int, markFailed bool) {
 	log := deps.Log.With("document_id", docID)
 	if markFailed && docID != uuid.Nil {
 		if upErr := deps.Store.UpdateDocumentStatus(ctx, docID, store.StatusFailed); upErr != nil {
@@ -157,7 +157,7 @@ func fail(deps app.Deps, ctx context.Context, w http.ResponseWriter, message str
 	httputil.Fail(log, w, message, err, status)
 }
 
-func summaryHandler(deps app.Deps) http.HandlerFunc {
+func summaryHandler(deps app.GatewayDeps) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		idStr := chi.URLParam(r, "id")
 		docID, err := uuid.Parse(idStr)
@@ -177,7 +177,7 @@ func summaryHandler(deps app.Deps) http.HandlerFunc {
 	}
 }
 
-func queryHandler(deps app.Deps) http.HandlerFunc {
+func queryHandler(deps app.GatewayDeps) http.HandlerFunc {
 	queryURL := "http://query:8081/api/query"
 	client := &http.Client{Timeout: 60 * time.Second}
 
@@ -207,7 +207,7 @@ func queryHandler(deps app.Deps) http.HandlerFunc {
 }
 
 // extractText extracts text from uploaded files, with PDF support.
-func extractText(filename string, content []byte, deps app.Deps) string {
+func extractText(filename string, content []byte, deps app.GatewayDeps) string {
 	if strings.HasSuffix(strings.ToLower(filename), ".pdf") {
 		text, err := extractPDF(content)
 		if err != nil {

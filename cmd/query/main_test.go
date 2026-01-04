@@ -21,17 +21,19 @@ import (
 	"doc-agents/internal/store"
 )
 
-func newTestDeps(st store.Store, l llm.Client, e embeddings.Embedder, c cache.Cache) app.Deps {
-	return app.Deps{
-		Store:    st,
+func newTestDeps(st store.Store, l llm.Client, e embeddings.Embedder, c cache.Cache) app.QueryDeps {
+	return app.QueryDeps{
+		BaseDeps: app.BaseDeps{
+			Store: st,
+			Config: config.Config{
+				EmbeddingModel: "test-model",
+				CacheTTL:       86400,
+			},
+			Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		},
 		LLM:      l,
 		Embedder: e,
 		Cache:    c,
-		Config: config.Config{
-			EmbeddingModel: "test-model",
-			CacheTTL:       86400,
-		},
-		Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
 	}
 }
 

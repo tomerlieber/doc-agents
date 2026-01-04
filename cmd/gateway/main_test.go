@@ -23,14 +23,16 @@ import (
 	"doc-agents/internal/store"
 )
 
-func newTestDeps(st store.Store, q queue.Queue) app.Deps {
-	return app.Deps{
-		Store: st,
-		Queue: q,
-		Config: config.Config{
-			MaxUploadSize: 1024 * 1024, // 1MB for tests
+func newTestDeps(st store.Store, q queue.Queue) app.GatewayDeps {
+	return app.GatewayDeps{
+		BaseDeps: app.BaseDeps{
+			Store: st,
+			Config: config.Config{
+				MaxUploadSize: 1024 * 1024, // 1MB for tests
+			},
+			Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
 		},
-		Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Queue: q,
 	}
 }
 

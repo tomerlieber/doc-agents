@@ -12,8 +12,14 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-playground/validator/v10"
 
-	"doc-agents/internal/app"
+	"doc-agents/internal/config"
 )
+
+// Deps is an interface that all service-specific dependencies must implement
+type Deps interface {
+	GetConfig() config.Config
+	GetLog() *slog.Logger
+}
 
 // NewRouter creates a chi router with standard middleware (RequestID, Recoverer, Logger, Timeout, RealIP).
 func NewRouter(log *slog.Logger) *chi.Mux {
@@ -37,11 +43,11 @@ func WriteJSON(w http.ResponseWriter, status int, body any) {
 }
 
 // HealthHandler returns a simple health check endpoint.
-func HealthHandler(deps app.Deps) http.HandlerFunc {
+func HealthHandler(deps Deps) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		if _, err := w.Write([]byte("ok")); err != nil {
-			deps.Log.Warn("healthz write failed", "err", err)
+			deps.GetLog().Warn("healthz write failed", "err", err)
 		}
 	}
 }
@@ -49,12 +55,12 @@ func HealthHandler(deps app.Deps) http.HandlerFunc {
 // ServeHealth starts an HTTP server with a health check endpoint.
 // serviceName is used for logging (e.g., "parser", "analysis").
 // This is a convenience function for services that only need a health endpoint.
-func ServeHealth(deps app.Deps, serviceName string) error {
-	r := NewRouter(deps.Log)
+func ServeHealth(deps Deps, serviceName string) error {
+	r := NewRouter(deps.GetLog())
 	r.Get("/healthz", HealthHandler(deps))
 
-	addr := fmt.Sprintf(":%d", deps.Config.Port)
-	deps.Log.Info(serviceName+" health endpoint listening", "addr", addr)
+	addr := fmt.Sprintf(":%d", deps.GetConfig().Port)
+	deps.GetLog().Info(serviceName+" health endpoint listening", "addr", addr)
 	return http.ListenAndServe(addr, r)
 }
 

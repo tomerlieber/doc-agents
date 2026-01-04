@@ -17,14 +17,16 @@ import (
 	"doc-agents/internal/store"
 )
 
-func newTestDeps(st store.Store, q queue.Queue) app.Deps {
-	return app.Deps{
-		Store: st,
-		Queue: q,
-		Config: config.Config{
-			EmbeddingModel: "test-model",
+func newTestDeps(st store.Store, q queue.Queue) app.ParserDeps {
+	return app.ParserDeps{
+		BaseDeps: app.BaseDeps{
+			Store: st,
+			Config: config.Config{
+				EmbeddingModel: "test-model",
+			},
+			Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
 		},
-		Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Queue: q,
 	}
 }
 

@@ -24,7 +24,7 @@ type parseTaskPayload struct {
 }
 
 func main() {
-	deps, err := app.Build()
+	deps, err := app.BuildParser()
 	if err != nil {
 		slog.Default().Error("failed to build dependencies", "err", err)
 		os.Exit(1)
@@ -55,7 +55,7 @@ func main() {
 	}
 }
 
-func handleParse(ctx context.Context, deps app.Deps, payload parseTaskPayload) error {
+func handleParse(ctx context.Context, deps app.ParserDeps, payload parseTaskPayload) error {
 	docID, err := uuid.Parse(payload.DocumentID)
 	if err != nil {
 		return err

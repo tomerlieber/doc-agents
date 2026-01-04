@@ -30,7 +30,7 @@ type source struct {
 }
 
 func main() {
-	deps, err := app.Build()
+	deps, err := app.BuildQuery()
 	if err != nil {
 		slog.Default().Error("failed to build dependencies", "err", err)
 		os.Exit(1)
@@ -47,7 +47,7 @@ func main() {
 	}
 }
 
-func queryHandler(deps app.Deps) http.HandlerFunc {
+func queryHandler(deps app.QueryDeps) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req queryRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {

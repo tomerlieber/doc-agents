@@ -16,53 +16,163 @@ import (
 	"doc-agents/internal/store"
 )
 
-// Deps bundles common runtime dependencies for services.
-type Deps struct {
-	Config   config.Config
-	Log      *slog.Logger
-	Store    store.Store
+// BaseDeps contains dependencies common to all services
+type BaseDeps struct {
+	Config config.Config
+	Log    *slog.Logger
+	Store  store.Store
+}
+
+// GetConfig implements httputil.Deps
+func (d BaseDeps) GetConfig() config.Config {
+	return d.Config
+}
+
+// GetLog implements httputil.Deps
+func (d BaseDeps) GetLog() *slog.Logger {
+	return d.Log
+}
+
+// ParserDeps contains dependencies for the parser service
+type ParserDeps struct {
+	BaseDeps
+	Queue queue.Queue
+}
+
+// AnalysisDeps contains dependencies for the analysis service
+type AnalysisDeps struct {
+	BaseDeps
 	Queue    queue.Queue
-	Embedder embeddings.Embedder
 	LLM      llm.Client
+	Embedder embeddings.Embedder
+}
+
+// QueryDeps contains dependencies for the query service
+type QueryDeps struct {
+	BaseDeps
+	LLM      llm.Client
+	Embedder embeddings.Embedder
 	Cache    cache.Cache
 }
 
-// Build loads config and shared components.
-// Environment variables should be set via Docker Compose, K8s, or shell.
-func Build() (Deps, error) {
+// GatewayDeps contains dependencies for the gateway service
+type GatewayDeps struct {
+	BaseDeps
+	Queue queue.Queue
+}
+
+// BuildParser initializes dependencies for the parser service
+func BuildParser() (ParserDeps, error) {
+	base, err := buildBase()
+	if err != nil {
+		return ParserDeps{}, err
+	}
+
+	q, err := buildQueue(base.Config, base.Log)
+	if err != nil {
+		return ParserDeps{}, fmt.Errorf("failed to initialize queue: %w", err)
+	}
+
+	return ParserDeps{
+		BaseDeps: base,
+		Queue:    q,
+	}, nil
+}
+
+// BuildAnalysis initializes dependencies for the analysis service
+func BuildAnalysis() (AnalysisDeps, error) {
+	base, err := buildBase()
+	if err != nil {
+		return AnalysisDeps{}, err
+	}
+
+	q, err := buildQueue(base.Config, base.Log)
+	if err != nil {
+		return AnalysisDeps{}, fmt.Errorf("failed to initialize queue: %w", err)
+	}
+
+	llmClient, err := buildLLM(base.Config, base.Log)
+	if err != nil {
+		return AnalysisDeps{}, fmt.Errorf("failed to initialize LLM: %w", err)
+	}
+
+	embedder, err := buildEmbedder(base.Config, base.Log)
+	if err != nil {
+		return AnalysisDeps{}, fmt.Errorf("failed to initialize embedder: %w", err)
+	}
+
+	return AnalysisDeps{
+		BaseDeps: base,
+		Queue:    q,
+		LLM:      llmClient,
+		Embedder: embedder,
+	}, nil
+}
+
+// BuildQuery initializes dependencies for the query service
+func BuildQuery() (QueryDeps, error) {
+	base, err := buildBase()
+	if err != nil {
+		return QueryDeps{}, err
+	}
+
+	llmClient, err := buildLLM(base.Config, base.Log)
+	if err != nil {
+		return QueryDeps{}, fmt.Errorf("failed to initialize LLM: %w", err)
+	}
+
+	embedder, err := buildEmbedder(base.Config, base.Log)
+	if err != nil {
+		return QueryDeps{}, fmt.Errorf("failed to initialize embedder: %w", err)
+	}
+
+	cacheClient, err := buildCache(base.Config, base.Log)
+	if err != nil {
+		// Cache is optional - degrade gracefully if unavailable
+		base.Log.Warn("failed to initialize cache, continuing without caching", "err", err)
+		cacheClient = cache.NewNoOpCache()
+	}
+
+	return QueryDeps{
+		BaseDeps: base,
+		LLM:      llmClient,
+		Embedder: embedder,
+		Cache:    cacheClient,
+	}, nil
+}
+
+// BuildGateway initializes dependencies for the gateway service
+func BuildGateway() (GatewayDeps, error) {
+	base, err := buildBase()
+	if err != nil {
+		return GatewayDeps{}, err
+	}
+
+	q, err := buildQueue(base.Config, base.Log)
+	if err != nil {
+		return GatewayDeps{}, fmt.Errorf("failed to initialize queue: %w", err)
+	}
+
+	return GatewayDeps{
+		BaseDeps: base,
+		Queue:    q,
+	}, nil
+}
+
+// buildBase creates the base dependencies common to all services
+func buildBase() (BaseDeps, error) {
 	cfg := config.Load()
 	log := logger.New(cfg.LogLevel)
 
 	st, err := buildStore(cfg, log)
 	if err != nil {
-		return Deps{}, fmt.Errorf("failed to initialize store: %w", err)
+		return BaseDeps{}, fmt.Errorf("failed to initialize store: %w", err)
 	}
-	q, err := buildQueue(cfg, log)
-	if err != nil {
-		return Deps{}, fmt.Errorf("failed to initialize queue: %w", err)
-	}
-	llmClient, err := buildLLM(cfg, log)
-	if err != nil {
-		return Deps{}, fmt.Errorf("failed to initialize LLM: %w", err)
-	}
-	embedder, err := buildEmbedder(cfg, log)
-	if err != nil {
-		return Deps{}, fmt.Errorf("failed to initialize embedder: %w", err)
-	}
-	cacheClient, err := buildCache(cfg, log)
-	if err != nil {
-		// Cache is optional - degrade gracefully if unavailable
-		log.Warn("failed to initialize cache, continuing without caching", "err", err)
-		cacheClient = cache.NewNoOpCache()
-	}
-	return Deps{
-		Config:   cfg,
-		Log:      log,
-		Store:    st,
-		Queue:    q,
-		Embedder: embedder,
-		LLM:      llmClient,
-		Cache:    cacheClient,
+
+	return BaseDeps{
+		Config: cfg,
+		Log:    log,
+		Store:  st,
 	}, nil
 }
 
